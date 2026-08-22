@@ -8,7 +8,7 @@ It is **independent from OSINT//DESK** (separate repo, separate deployment) but 
 
 - Language: Python 3.11+ (services), React + Vite + TailwindCSS (dashboard)
 - Deployment: Docker Compose on Ubuntu (Proxmox VM)
-- LLM inference: shared Ollama server at `http://100.94.37.18:11434` (NVIDIA A5000, Tailscale). **Do NOT deploy a new Ollama.** Respect the no-swap VRAM policy: use only models already resident (`qwen3:8b`, `bge-m3` via Ollama embeddings API). Do not pull or load other models.
+- LLM inference: shared Ollama server at `http://100.94.37.18:11434` (NVIDIA A5000, Tailscale). **Do NOT deploy a new Ollama.** Respect the no-swap VRAM policy: use only models already resident (`gemma4:12b`, `bge-m3` via Ollama embeddings API). Do not pull or load other models.
 - All timestamps stored UTC; display timezone Asia/Bangkok.
 - Primary content language is Thai; prompts must handle Thai + mixed Thai/English text.
 
@@ -71,7 +71,7 @@ Implement these tables (add indexes on all FK and time columns):
 ## Pipeline Implementation Details
 
 ### Step 1+3 — Extraction + Classification (single LLM call)
-- Model: `qwen3:8b` via Ollama `/api/chat`, `temperature: 0`, `format: json`.
+- Model: `gemma4:12b` via Ollama `/api/chat`, `temperature: 0`, `format: json`.
 - Prompt requirements: output MUST match this schema exactly; closed category list: `["การเมือง","เศรษฐกิจ","ความมั่นคง","เทคโนโลยี","สังคม","สิ่งแวดล้อม","ต่างประเทศ","พลังงาน","บันเทิง/กีฬา"]` (multi-label, 1–3 labels); normalize entity names (Thai transliteration ↔ English: keep both in `actors` as canonical string, e.g. `"Fed (เฟด)"`); ISO-8601 for `time`, null if not stated — never guess dates.
 ```json
 {
@@ -125,7 +125,7 @@ Implement these tables (add indexes on all FK and time columns):
 
 ### Step 9 — Scenario Reasoning
 - RAG context: all events in cluster (summaries, capped at 50 most recent), force_assessments, trend history (last 10 windows), top-3 related clusters by centroid similarity.
-- Model: `qwen3:8b`. Output JSON: `{best_case, worst_case, likely_case, indicators: [{description, watch_type}]}` — Thai language.
+- Model: `gemma4:12b`. Output JSON: `{best_case, worst_case, likely_case, indicators: [{description, watch_type}]}` — Thai language.
 - Every scenario stored with `source_event_ids` for auditability. UI must display "ฉากทัศน์เป็นความเป็นไปได้ที่มีเงื่อนไข ไม่ใช่คำพยากรณ์ — ต้องผ่านการกลั่นกรองของนักวิเคราะห์".
 
 ### Alert Dispatch
@@ -195,7 +195,7 @@ Keep styling minimal (Tailwind); dark theme.
 
 ```
 OLLAMA_BASE_URL=http://100.94.37.18:11434
-EXTRACT_MODEL=qwen3:8b
+EXTRACT_MODEL=gemma4:12b
 EMBED_MODEL=bge-m3
 DEDUP_MINHASH_T=0.85
 DEDUP_COSINE_T=0.88

@@ -1,7 +1,7 @@
 """Ollama client — chat (JSON mode) and embeddings.
 
 Points at the shared A5000 box. Only models already resident may be requested:
-`qwen3:8b` and `bge-m3`. Never pull, never load anything else — the server runs a
+`gemma4:12b` and `bge-m3`. Never pull, never load anything else — the server runs a
 no-swap VRAM policy and an unexpected model would evict a resident one.
 
 Every call is timeout-bounded, retried once, and counted in `horizon.metrics`.
@@ -29,7 +29,7 @@ class OllamaError(RuntimeError):
 
 
 def strip_think(text: str) -> str:
-    """Drop qwen3 reasoning blocks that occasionally leak into the content field."""
+    """Drop reasoning blocks that thinking models leak into the content field."""
     return _THINK_RE.sub("", text).strip()
 
 

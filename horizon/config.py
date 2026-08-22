@@ -24,7 +24,7 @@ class Settings(BaseSettings):
 
     # ── LLM ──────────────────────────────────────────────────────────────────
     ollama_base_url: str = "http://100.94.37.18:11434"
-    extract_model: str = "qwen3:8b"
+    extract_model: str = "gemma4:12b"
     embed_model: str = "bge-m3"
     llm_timeout: float = 60.0
 

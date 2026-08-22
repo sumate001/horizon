@@ -56,21 +56,23 @@ DRIVING_FORCES = [
     ),
 ]
 
-# Starter registry. Credibility weights are an initial estimate — tune them via
-# PATCH /api/v1/sources or the Sources page, they are not gospel.
+# Starter registry, all verified to return entries. Credibility weights are an
+# initial estimate — tune them via PATCH /api/v1/sources or the Sources page.
+#
+# Deliberately absent: Thai PBS and PPTV HD36 publish no reachable RSS (404 on
+# every documented path) and nationthailand.com/rss serves an HTML page. Add them
+# back through the API once a working feed URL exists — a dead feed just logs a
+# failure every poll.
 SOURCES = [
-    ("Thai PBS", "https://www.thaipbs.or.th/rss/news.xml", "rss", 0.90),
     ("BBC Thai", "https://feeds.bbci.co.uk/thai/rss.xml", "rss", 0.90),
     ("ThaiPublica", "https://thaipublica.org/feed/", "rss", 0.85),
     ("Bangkok Post", "https://www.bangkokpost.com/rss/data/topstories.xml", "rss", 0.85),
     ("สำนักข่าวอิศรา", "https://www.isranews.org/isranews.feed?type=rss", "rss", 0.80),
     ("The Standard", "https://thestandard.co/feed/", "rss", 0.80),
-    ("ประชาไท", "https://prachatai.com/journal/feed", "rss", 0.75),
+    ("ประชาไท", "https://prachatai.com/rss.xml", "rss", 0.75),
     ("มติชนออนไลน์", "https://www.matichon.co.th/feed", "rss", 0.75),
-    ("The Nation Thailand", "https://www.nationthailand.com/rss", "rss", 0.75),
     ("ไทยรัฐ", "https://www.thairath.co.th/rss/news", "rss", 0.70),
     ("ข่าวสด", "https://www.khaosod.co.th/feed", "rss", 0.70),
-    ("PPTV HD36", "https://www.pptvhd36.com/rss/news", "rss", 0.70),
 ]
 
 

@@ -14,7 +14,7 @@ Horizon เป็นระบบ**หลัก** (radar) ส่วน [OSINT//DE
 
 ## เริ่มใช้งาน
 
-ต้องมี Docker 24+ พร้อม compose plugin และ Ollama ที่มี `qwen3:8b` + `bge-m3` โหลดอยู่แล้ว
+ต้องมี Docker 24+ พร้อม compose plugin และ Ollama ที่มี `gemma4:12b` + `bge-m3` โหลดอยู่แล้ว
 
 ```bash
 cp .env.example .env
@@ -33,11 +33,11 @@ make logs          # ดู log สด
 | สถิติ ingestion | http://localhost:8300/api/v1/stats |
 | เหตุการณ์ล่าสุด | http://localhost:8300/api/v1/events |
 
-`make up` จะ migrate schema และ seed แหล่งข่าวไทยเริ่มต้น 12 แหล่ง + driving force PESTEL 6 ตัวให้อัตโนมัติ
+`make up` จะ migrate schema และ seed แหล่งข่าวไทยเริ่มต้น 9 แหล่ง + driving force PESTEL 6 ตัวให้อัตโนมัติ
 poller เริ่มดึงทันทีโดยไม่รอครบ 15 นาที
 
 > **ข้อควรระวังเรื่อง Ollama:** เซิร์ฟเวอร์ Ollama เป็นเครื่องที่ใช้ร่วมกัน (A5000, no-swap VRAM policy)
-> ใช้ได้เฉพาะ `qwen3:8b` และ `bge-m3` ที่โหลดค้างอยู่แล้วเท่านั้น **ห้าม pull หรือโหลดโมเดลอื่น**
+> ใช้ได้เฉพาะ `gemma4:12b` และ `bge-m3` ที่โหลดค้างอยู่แล้วเท่านั้น **ห้าม pull หรือโหลดโมเดลอื่น**
 
 ---
 
