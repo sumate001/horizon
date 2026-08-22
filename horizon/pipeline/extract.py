@@ -7,7 +7,7 @@ may raise past `extract_event` except `ExtractionError`.
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 
 from ..config import CATEGORIES, get_settings
 from ..llm.ollama import OllamaClient, extract_json, get_ollama
@@ -60,7 +60,7 @@ def parse_event_time(value: object) -> datetime | None:
             continue
         if parsed.tzinfo is None:
             parsed = parsed.replace(tzinfo=BANGKOK)
-        return parsed.astimezone(timezone.utc)
+        return parsed.astimezone(UTC)
 
     log.debug("unparseable event_time", extra={"value": value})
     return None
@@ -137,5 +137,6 @@ async def extract_event(
             repair_messages(raw), purpose="extract_repair", model=settings.extract_model
         )
         return normalize(extract_json(repaired))
-    except Exception as exc:  # noqa: BLE001 — terminal for this article only
+    except Exception as exc:
+        # Terminal for this article only — the worker marks it `failed` and moves on.
         raise ExtractionError(f"repair failed: {exc}") from exc

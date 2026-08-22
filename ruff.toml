@@ -1,0 +1,21 @@
+line-length = 100
+target-version = "py311"
+
+[lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "BLE", "RUF"]
+ignore = [
+    "B008",    # FastAPI Depends() in defaults is the framework idiom
+    "SIM108",  # ternaries hurt readability in the config/threshold code
+    "RUF001",  # Thai digits and en dashes are content here, not typos
+    "RUF002",
+    "RUF003",
+]
+# BLE001 stays enabled on purpose. The spec requires that one article, cluster or
+# LLM failure never halts a loop, so `except Exception` at per-item and loop
+# boundaries is the design — but each such site must say so with an explicit
+# `# noqa: BLE001`, which keeps accidental blind excepts from slipping in.
+
+[lint.per-file-ignores]
+# conftest pins env vars before importing horizon.config, which caches settings.
+"tests/conftest.py" = ["E402"]
+"migrations/versions/*" = ["E501"]

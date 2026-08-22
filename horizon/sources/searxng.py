@@ -5,7 +5,7 @@ instance itself comes from SEARXNG_URL so it can be moved without touching rows.
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 
@@ -23,7 +23,7 @@ def _published(value: str | None) -> datetime | None:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return None
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
 async def fetch_searxng(source: Source, client: httpx.AsyncClient) -> list[FetchedArticle]:

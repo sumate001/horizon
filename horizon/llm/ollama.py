@@ -144,7 +144,8 @@ class OllamaClient:
                 body = await self._post("/api/embed", payload)
                 vectors = body.get("embeddings")
                 if not vectors or len(vectors) != len(texts):
-                    raise ValueError(f"expected {len(texts)} embeddings, got {vectors and len(vectors)}")
+                    got = len(vectors) if vectors else 0
+                    raise ValueError(f"expected {len(texts)} embeddings, got {got}")
                 llm_latency.labels("embed").observe(time.perf_counter() - started)
                 llm_calls.labels("embed", "ok").inc()
                 return vectors

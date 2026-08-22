@@ -1,7 +1,7 @@
 """RSS / Atom fetcher."""
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import feedparser
 import httpx
@@ -26,7 +26,7 @@ def _published(entry) -> datetime | None:
     if not parsed:
         return None
     try:
-        return datetime(*parsed[:6], tzinfo=timezone.utc)
+        return datetime(*parsed[:6], tzinfo=UTC)
     except (TypeError, ValueError):
         return None
 

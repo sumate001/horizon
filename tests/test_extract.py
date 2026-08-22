@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -42,9 +42,9 @@ class FakeOllama:
 @pytest.mark.parametrize(
     "value,expected",
     [
-        ("2026-08-22T14:30:00+07:00", datetime(2026, 8, 22, 7, 30, tzinfo=timezone.utc)),
-        ("2026-08-22T07:30:00Z", datetime(2026, 8, 22, 7, 30, tzinfo=timezone.utc)),
-        ("2026-08-22 14:30:00", datetime(2026, 8, 22, 7, 30, tzinfo=timezone.utc)),
+        ("2026-08-22T14:30:00+07:00", datetime(2026, 8, 22, 7, 30, tzinfo=UTC)),
+        ("2026-08-22T07:30:00Z", datetime(2026, 8, 22, 7, 30, tzinfo=UTC)),
+        ("2026-08-22 14:30:00", datetime(2026, 8, 22, 7, 30, tzinfo=UTC)),
     ],
 )
 def test_parse_event_time_normalizes_to_utc(value, expected):
@@ -53,7 +53,7 @@ def test_parse_event_time_normalizes_to_utc(value, expected):
 
 def test_naive_dates_are_read_as_bangkok_local():
     assert parse_event_time("2026-08-22") == datetime(2026, 8, 22, tzinfo=BANGKOK).astimezone(
-        timezone.utc
+        UTC
     )
 
 

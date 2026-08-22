@@ -7,9 +7,9 @@ os.environ.setdefault("REDIS_URL", "redis://localhost:6380/0")
 os.environ.setdefault("QDRANT_URL", "http://localhost:6343")
 os.environ.setdefault("OLLAMA_BASE_URL", "http://localhost:11434")
 
-import pytest  # noqa: E402
+import pytest
 
-from horizon.config import get_settings  # noqa: E402
+from horizon.config import get_settings
 
 
 @pytest.fixture(autouse=True)

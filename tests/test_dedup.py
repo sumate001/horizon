@@ -1,6 +1,6 @@
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -117,7 +117,7 @@ def test_changed_number_is_an_update():
 
 
 def test_changed_event_time_is_an_update():
-    when = datetime(2026, 8, 22, tzinfo=timezone.utc)
+    when = datetime(2026, 8, 22, tzinfo=UTC)
     extraction = Extraction(summary="เหมือนเดิม", event_time=when)
     action, reason = classify_match(extraction, _candidate("เหมือนเดิม", event_time=None))
     assert action == "update"

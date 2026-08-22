@@ -31,7 +31,9 @@ log = logging.getLogger("horizon.poller")
 USER_AGENT = "HorizonBot/0.1 (+news intelligence pipeline)"
 
 
-async def _fill_bodies(articles: list[FetchedArticle], client: httpx.AsyncClient) -> list[FetchedArticle]:
+async def _fill_bodies(
+    articles: list[FetchedArticle], client: httpx.AsyncClient
+) -> list[FetchedArticle]:
     """Fetch full pages for entries whose feed body is too thin to extract from."""
     settings = get_settings()
     if not settings.fetch_fulltext:

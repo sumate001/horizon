@@ -8,7 +8,7 @@ are plain integer comparisons.
 import logging
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from functools import lru_cache
 
 from qdrant_client import AsyncQdrantClient, models
@@ -128,4 +128,4 @@ def get_vector_store() -> VectorStore:
 
 
 def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)

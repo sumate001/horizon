@@ -7,7 +7,7 @@ stats for the dashboard. The inbound verdict endpoint arrives in phase 4.
 import logging
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Response, status
@@ -183,7 +183,7 @@ async def stats(session: SessionDep) -> Stats:
             )
         ).all()
     }
-    since = datetime.now(timezone.utc) - timedelta(hours=24)
+    since = datetime.now(UTC) - timedelta(hours=24)
 
     return Stats(
         queue_depth=await ArticleQueue().depth(),

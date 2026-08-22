@@ -12,7 +12,7 @@ import asyncio
 import logging
 import signal
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 
@@ -155,7 +155,7 @@ class ArticleWorker:
         await self.vectors.upsert_event(
             event_id,
             embedding,
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
             categories=extraction.categories,
             summary=extraction.summary,
         )
@@ -231,7 +231,7 @@ class ArticleWorker:
             if event is None:
                 return
             entry = {
-                "at": datetime.now(timezone.utc).isoformat(),
+                "at": datetime.now(UTC).isoformat(),
                 "raw_article_id": str(article_id),
                 "reason": result.reason,
                 "similarity": round(result.similarity, 4),
@@ -253,7 +253,8 @@ class ArticleWorker:
         while not self._stop.is_set():
             try:
                 article_id = await self.queue.pop(timeout=5)
-            except Exception as exc:  # noqa: BLE001 — Redis blip, back off and retry
+            except Exception as exc:  # noqa: BLE001
+                # Redis blip — back off and retry rather than losing the consumer.
                 log.warning("queue pop failed", extra={"error": str(exc)})
                 await asyncio.sleep(2)
                 continue
@@ -264,14 +265,15 @@ class ArticleWorker:
             started = asyncio.get_running_loop().time()
             try:
                 await self.process(article_id)
-            except Exception as exc:  # noqa: BLE001 — never let one article kill the loop
+            except Exception as exc:
+                # Last line of defence: one bad article must never kill the loop.
                 log.exception(
                     "unhandled article failure",
                     extra={"article_id": str(article_id), "error": str(exc)},
                 )
                 try:
                     await self._finish(article_id, "failed")
-                except Exception:  # noqa: BLE001
+                except Exception:
                     log.exception("could not mark article failed")
             finally:
                 extraction_latency.observe(asyncio.get_running_loop().time() - started)
@@ -307,7 +309,7 @@ async def requeue_stuck() -> int:
     queue are not enqueued a second time and processed concurrently.
     """
     queue = ArticleQueue()
-    cutoff = datetime.now(timezone.utc) - STUCK_AFTER
+    cutoff = datetime.now(UTC) - STUCK_AFTER
     async with session_scope() as session:
         ids = list(
             (
