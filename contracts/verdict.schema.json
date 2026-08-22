@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://horizon.local/contracts/verdict.schema.json",
+  "title": "OSINT//DESK verdict feedback — POST {HORIZON_BASE_URL}/api/v1/verdicts",
+  "description": "Shared contract between Horizon and OSINT//DESK. Field names must not change without updating both repos.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["signal_id", "osint_signal_id", "verdict", "analyst_note", "closed_at"],
+  "properties": {
+    "signal_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "The original dispatches.id sent by Horizon"
+    },
+    "osint_signal_id": {
+      "type": "string",
+      "description": "external_signals.id on the OSINT//DESK side"
+    },
+    "verdict": {
+      "type": "string",
+      "enum": ["true_signal", "false_signal", "inconclusive"]
+    },
+    "analyst_note": { "type": ["string", "null"] },
+    "closed_at": { "type": "string", "format": "date-time" }
+  }
+}

@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://horizon.local/contracts/signal_inbound.schema.json",
+  "title": "Horizon signal delivery — POST {OSINT_DESK_BASE_URL}/api/v1/signals/inbound",
+  "description": "Shared contract between Horizon and OSINT//DESK. Field names must not change without updating both repos.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "signal_id",
+    "signal_type",
+    "title",
+    "combined_score",
+    "trend_score",
+    "categories",
+    "summary",
+    "top_events",
+    "force_assessments",
+    "scenario_id",
+    "created_at"
+  ],
+  "properties": {
+    "signal_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "dispatches.id on the Horizon side; idempotency key for OSINT//DESK"
+    },
+    "signal_type": {
+      "type": "string",
+      "enum": ["weak_signal", "trend_breakout"]
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Cluster label or event summary, Thai"
+    },
+    "combined_score": { "type": "number", "minimum": 0, "maximum": 1 },
+    "trend_score": { "type": "number" },
+    "categories": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "การเมือง",
+          "เศรษฐกิจ",
+          "ความมั่นคง",
+          "เทคโนโลยี",
+          "สังคม",
+          "สิ่งแวดล้อม",
+          "ต่างประเทศ",
+          "พลังงาน",
+          "บันเทิง/กีฬา"
+        ]
+      }
+    },
+    "summary": { "type": "string", "description": "Thai" },
+    "top_events": {
+      "type": "array",
+      "maxItems": 10,
+      "description": "Ordered by credibility_weight descending",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["summary", "url", "source_name", "credibility_weight", "event_time"],
+        "properties": {
+          "summary": { "type": "string" },
+          "url": { "type": "string" },
+          "source_name": { "type": "string" },
+          "credibility_weight": { "type": "number", "minimum": 0, "maximum": 1 },
+          "event_time": { "type": ["string", "null"], "format": "date-time" }
+        }
+      }
+    },
+    "force_assessments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["force", "impact", "uncertainty"],
+        "properties": {
+          "force": { "type": "string" },
+          "impact": { "type": "number", "minimum": 0, "maximum": 1 },
+          "uncertainty": { "type": "number", "minimum": 0, "maximum": 1 }
+        }
+      }
+    },
+    "scenario_id": { "type": ["string", "null"], "format": "uuid" },
+    "created_at": { "type": "string", "format": "date-time" }
+  }
+}

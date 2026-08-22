@@ -1,0 +1,119 @@
+# Horizon — News Intelligence Pipeline
+#
+# Fully separate Docker stack from OSINT//DESK (project `osintdesk`): its own
+# compose project, network, volumes, postgres, redis and qdrant. The two systems
+# talk over HTTP webhooks only — never over a shared network or database.
+#
+# Host ports are offset so both stacks run side by side on one machine:
+#   horizon   postgres 5433  redis 6380  qdrant 6343  api 8300  ui 8301
+#   osintdesk nginx 80/443   api 8000    neo4j 7474/7687  (pg/redis not exposed)
+#
+# Phase 1 services only (poller / worker / api). horizon-batch, horizon-reasoner
+# and horizon-ui are added in phases 2, 3 and 5.
+
+name: horizon
+
+x-app: &app
+  build:
+    context: .
+  image: horizon-app:latest
+  env_file: .env
+  restart: unless-stopped
+  networks: [horizon]
+  # Lets the reasoner reach OSINT//DESK on the host (OSINT_DESK_BASE_URL=
+  # http://host.docker.internal:8000) without joining its network.
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+    qdrant:
+      condition: service_started
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-horizon}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
+      POSTGRES_DB: ${POSTGRES_DB:-horizon}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-horizon} -d ${POSTGRES_DB:-horizon}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    networks: [horizon]
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    networks: [horizon]
+
+  qdrant:
+    image: qdrant/qdrant:v1.12.4
+    volumes:
+      - qdrantdata:/qdrant/storage
+    ports:
+      - "6343:6333"
+    restart: unless-stopped
+    networks: [horizon]
+
+  # Runs migrations + seed once, then exits. Everything else waits on it.
+  migrate:
+    <<: *app
+    restart: "no"
+    command: ["sh", "-c", "alembic upgrade head && python -m horizon.seed"]
+
+  api:
+    <<: *app
+    command: ["uvicorn", "horizon.services.api:app", "--host", "0.0.0.0", "--port", "8300"]
+    ports:
+      - "8300:8300"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8300/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  poller:
+    <<: *app
+    command: ["python", "-m", "horizon.services.poller"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  worker:
+    <<: *app
+    command: ["python", "-m", "horizon.services.worker"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+networks:
+  horizon:
+    name: horizon_net
+
+volumes:
+  pgdata:
+  redisdata:
+  qdrantdata:
