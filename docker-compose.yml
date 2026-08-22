@@ -8,8 +8,8 @@
 #   horizon   postgres 5433  redis 6380  qdrant 6343  api 8300  ui 8301
 #   osintdesk nginx 80/443   api 8000    neo4j 7474/7687  (pg/redis not exposed)
 #
-# Phase 1 services only (poller / worker / api). horizon-batch, horizon-reasoner
-# and horizon-ui are added in phases 2, 3 and 5.
+# Phases 1, 2 and (early) 5: poller / worker / api / batch / ui.
+# horizon-reasoner arrives in phase 3.
 
 name: horizon
 
@@ -74,6 +74,19 @@ services:
       - "6343:6333"
     restart: unless-stopped
     networks: [horizon]
+    # Qdrant mmaps several files per segment and holds them open. Docker's
+    # default soft limit of 1024 is well under what it needs: once exhausted it
+    # stops accepting connections entirely with "Too many open files (os error
+    # 24)" while still looking healthy from the outside.
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333'"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
 
   # Runs migrations + seed once, then exits. Everything else waits on it.
   migrate:
@@ -105,6 +118,13 @@ services:
   worker:
     <<: *app
     command: ["python", "-m", "horizon.services.worker"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  batch:
+    <<: *app
+    command: ["python", "-m", "horizon.services.batch"]
     depends_on:
       migrate:
         condition: service_completed_successfully

@@ -38,7 +38,28 @@ class Settings(BaseSettings):
     dedup_cosine_t: float = 0.88
     dedup_window_days: int = 7
     min_cluster_size: int = 4
-    temporal_weight: float = 0.15
+    # Distance added per day of separation between two events.
+    #
+    # Measured on real Thai news: bge-m3 cosine distance between events occupies
+    # [0.13, 0.87] — mean 0.66, sd 0.07 — not the theoretical [0, 2]. The spec's
+    # 0.15/day was calibrated against the theoretical range, so in practice one
+    # day of separation cost 2.2 standard deviations of semantic distance and
+    # clustering degenerated into "group by timestamp".
+    #
+    # 0.065 satisfies both ends of the real scale: 14 days apart costs 0.91,
+    # past the most dissimilar pair ever observed, while one day costs about one
+    # standard deviation — a nudge, not a verdict.
+    temporal_weight: float = 0.065
+    #: "leaf" takes the finest coherent groups; "eom" (HDBSCAN's default) merges
+    #: by excess of mass and collapsed 210 events into one 195-event blob.
+    cluster_selection_method: str = "leaf"
+    cluster_window_days: int = 30
+    #: Run-to-run label stability: centroid cosine at or above this reuses the id.
+    cluster_match_t: float = 0.9
+    #: Clustering builds an n×n float64 distance matrix — 6000 events ≈ 288 MB.
+    max_cluster_events: int = 6000
+    #: A cluster with no new events for this long goes dormant.
+    cluster_dormant_days: int = 7
     weak_signal_t: float = 0.65
     trend_breakout_t: float = 2.5
 
@@ -69,6 +90,7 @@ class Settings(BaseSettings):
     signals_channel: str = "horizon:signals"
     qdrant_url: str = "http://qdrant:6333"
     qdrant_collection: str = "horizon_events"
+    qdrant_centroid_collection: str = "horizon_centroids"
     searxng_url: str = ""
 
     # ── Runtime ──────────────────────────────────────────────────────────────

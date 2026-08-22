@@ -32,8 +32,10 @@ class VectorStore:
     def __init__(self, client: AsyncQdrantClient | None = None, collection: str | None = None):
         settings = get_settings()
         self.collection = collection or settings.qdrant_collection
+        self.centroid_collection = settings.qdrant_centroid_collection
         self._client = client or AsyncQdrantClient(url=settings.qdrant_url)
         self._ready = False
+        self._centroids_ready = False
 
     async def ensure_collection(self, dim: int = EMBEDDING_DIM) -> None:
         """Idempotent — safe to call on every worker start."""
@@ -111,6 +113,97 @@ class VectorStore:
             )
             for point in response.points
         ]
+
+    async def scroll_events(
+        self, *, since: datetime | None = None, limit: int = 20000
+    ) -> list[tuple[uuid.UUID, list[float]]]:
+        """Every stored vector in the window, oldest page first.
+
+        Used by the clustering job, which needs the raw embeddings rather than
+        nearest neighbours. Returns at most `limit` points.
+        """
+        await self.ensure_collection()
+        scroll_filter = None
+        if since is not None:
+            scroll_filter = models.Filter(
+                must=[
+                    models.FieldCondition(
+                        key="created_at", range=models.Range(gte=int(since.timestamp()))
+                    )
+                ]
+            )
+
+        out: list[tuple[uuid.UUID, list[float]]] = []
+        offset = None
+        while len(out) < limit:
+            points, offset = await self._client.scroll(
+                collection_name=self.collection,
+                scroll_filter=scroll_filter,
+                limit=min(1024, limit - len(out)),
+                offset=offset,
+                with_vectors=True,
+                with_payload=False,
+            )
+            out.extend((uuid.UUID(str(p.id)), list(p.vector)) for p in points if p.vector)
+            if offset is None or not points:
+                break
+        return out
+
+    async def upsert_centroid(
+        self, centroid_id: uuid.UUID, vector: list[float], *, cluster_id: uuid.UUID
+    ) -> None:
+        """Cluster centroids live in their own collection.
+
+        Run-to-run label stability and weak-signal novelty both need to search
+        centroids without event vectors polluting the results.
+        """
+        await self.ensure_centroids(len(vector))
+        await self._client.upsert(
+            collection_name=self.centroid_collection,
+            points=[
+                models.PointStruct(
+                    id=str(centroid_id),
+                    vector=vector,
+                    payload={"cluster_id": str(cluster_id)},
+                )
+            ],
+        )
+
+    async def ensure_centroids(self, dim: int = EMBEDDING_DIM) -> None:
+        if self._centroids_ready:
+            return
+        if not await self._client.collection_exists(self.centroid_collection):
+            await self._client.create_collection(
+                collection_name=self.centroid_collection,
+                vectors_config=models.VectorParams(size=dim, distance=models.Distance.COSINE),
+            )
+            log.info("created qdrant collection", extra={"collection": self.centroid_collection})
+        self._centroids_ready = True
+
+    async def search_centroids(self, vector: list[float], *, limit: int = 5) -> list[VectorHit]:
+        await self.ensure_centroids(len(vector))
+        response = await self._client.query_points(
+            collection_name=self.centroid_collection,
+            query=vector,
+            limit=limit,
+            with_payload=True,
+        )
+        return [
+            VectorHit(
+                event_id=uuid.UUID(str(point.payload["cluster_id"])),
+                score=float(point.score),
+                payload=point.payload or {},
+            )
+            for point in response.points
+            if point.payload and point.payload.get("cluster_id")
+        ]
+
+    async def clear_centroids(self) -> None:
+        """Centroids are fully rebuilt each clustering run — stale ones would
+        keep matching clusters that no longer exist."""
+        if await self._client.collection_exists(self.centroid_collection):
+            await self._client.delete_collection(self.centroid_collection)
+        self._centroids_ready = False
 
     async def delete_event(self, event_id: uuid.UUID) -> None:
         await self._client.delete(

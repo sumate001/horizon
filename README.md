@@ -8,7 +8,8 @@ Horizon เป็นระบบ**หลัก** (radar) ส่วน [OSINT//DE
 การสืบสวนเชิงลึกโดยนักวิเคราะห์ Horizon ส่ง signal เข้าไปทาง webhook และรับ verdict กลับมา
 ทั้งสองระบบเป็น Docker stack แยกกันคนละชุด คุยกันผ่าน HTTP เท่านั้น ถ้าฝั่งใดล่ม อีกฝั่งทำงานต่อได้ปกติ
 
-**สถานะ: Phase 1 (Skeleton + Ingestion)** — poller, worker, dedup 2 ชั้น, API, schema ครบทุกตาราง
+**สถานะ: Phase 1 + 2 + Dashboard** — ingestion, dedup 2 ชั้น, clustering, trend scoring,
+weak signal detection, pub/sub และ UI 5 หน้า เหลือ Phase 3 (reasoner) และ Phase 4 (webhook)
 
 ---
 
@@ -65,12 +66,28 @@ RHYTHM 1 — STREAMING (ทุก 15 นาที)          ← Phase 1 ✅
     gate (credibility) → LLM extract+classify → dedup L1 (MinHash) → dedup L2 (bge-m3 + Qdrant)
     → PostgreSQL + Qdrant
 
-RHYTHM 2 — BATCH (ทุก 3 ชม.)                ← Phase 2
-  clustering (HDBSCAN) / trend scoring / weak signal detection → publish `horizon:signals`
+RHYTHM 2 — BATCH (ทุก 3 ชม.)                ← Phase 2 ✅
+  A clustering (HDBSCAN) → B trend scoring → C weak signals → publish `horizon:signals`
 
 RHYTHM 3 — EVENT-DRIVEN (subscriber)         ← Phase 3
   reasoner: driving force (PESTEL+AHP) → scenario (RAG) → Telegram/LINE → webhook ไป OSINT//DESK
 ```
+
+### Clustering ปรับค่าจากข้อมูลจริง ไม่ใช่ค่าตามทฤษฎี
+
+วัด cosine distance ของทุกคู่เหตุการณ์จริงใน Qdrant พบว่า bge-m3 กับข่าวไทยใช้ช่วง
+**[0.13, 0.87] (mean 0.66, sd 0.067)** ไม่ใช่ [0, 2] ตามทฤษฎี ผลคือ:
+
+| ค่า | เดิม (ตามสเปค) | ที่ใช้จริง | เหตุผล |
+|---|---|---|---|
+| `TEMPORAL_WEIGHT` | 0.15/วัน | **0.065/วัน** | 0.15 ทำให้ห่างกัน 1 วัน = 2.2 เท่าของ sd → clustering กลายเป็นการจัดกลุ่มตามเวลา ส่วน 0.065 ให้ 14 วัน = 0.91 (เกินระยะทางความหมายสูงสุดที่วัดได้) แต่ 1 วัน ≈ 1 sd |
+| `CLUSTER_SELECTION_METHOD` | (ไม่ระบุ, default `eom`) | **`leaf`** | `eom` ยุบ 210 เหตุการณ์เป็นก้อนเดียว 195 ทุกครั้งที่มี temporal term |
+
+หลังปรับ: 10 คลัสเตอร์ที่เกาะหัวข้อจริง (คดีเดียวกันจาก 4 สำนักข่าว, นัดฟุตบอลเดียวกัน,
+อุทกภัยจังหวัดเดียวกัน) noise 72% ซึ่งเป็นวัตถุดิบของการตรวจจับสัญญาณอ่อนพอดี
+
+`cluster_id` คงเดิมข้ามรอบด้วยการจับคู่ centroid (cosine ≥ 0.9) — คลัสเตอร์ที่โตต่อเนื่อง
+จึงรักษาประวัติคะแนนของตัวเองไว้ได้
 
 ### Dedup ทำงานยังไง
 
@@ -94,7 +111,7 @@ Jaccard จะตกต่ำกว่าเกณฑ์และตกไปใ
 
 ```bash
 make up          # build + start ทุก service
-make logs        # log สดของ api, poller, worker
+make logs        # log สดของ api, poller, worker, batch
 make ps          # สถานะ container
 make down        # หยุด
 make migrate     # รัน alembic upgrade head + seed
@@ -152,8 +169,15 @@ horizon/
 │   ├── extract.py       # step 1+3 — LLM เดียวจบ + repair prompt เมื่อ JSON พัง
 │   ├── dedup.py         # step 4 — ตัดสินอย่างเดียว ไม่เขียน DB (เทสต์ได้โดยไม่ต้องมี DB)
 │   └── vectors.py       # Qdrant wrapper
+├── batch/
+│   ├── clustering.py    # step 5 — HDBSCAN บน distance matrix (cosine + temporal)
+│   ├── trends.py        # step 8 — สถิติล้วน แยกเป็นฟังก์ชันบริสุทธิ์เพื่อ pin ค่าในเทสต์
+│   ├── weak_signals.py  # step 6 — novelty + Isolation Forest + burst
+│   ├── burst.py         # Kleinberg 2-state automaton (Viterbi)
+│   └── signals.py       # publish ไป redis channel horizon:signals
 ├── sources/             # rss / searxng fetcher + full-text extraction
-└── services/            # poller / worker / api
+└── services/            # poller / worker / batch / api
+services/ui/             # React + Vite + Tailwind ผ่าน nginx (พร้อม proxy /api)
 contracts/               # JSON Schema ที่ใช้ร่วมกับ OSINT//DESK — source of truth
 ```
 
@@ -167,10 +191,10 @@ contracts/               # JSON Schema ที่ใช้ร่วมกับ O
 | Phase | ขอบเขต | สถานะ |
 |---|---|---|
 | 1 | Skeleton + ingestion + dedup | ✅ |
-| 2 | Batch: clustering, trend scoring, weak signals, pub/sub | ⬜ |
+| 2 | Batch: clustering, trend scoring, weak signals, pub/sub | ✅ |
 | 3 | Reasoner: driving force (AHP), scenario, Telegram/LINE | ⬜ |
 | 4 | Integration: outbound webhook + inbound verdict endpoint | ⬜ |
-| 5 | Dashboard 4 หน้า (Trends, Weak Signals, Scenarios, Sources) | ⬜ |
+| 5 | Dashboard (Overview, Trends, Weak Signals, Scenarios, Sources) | ✅ |
 | 6 | Hardening: metrics ครบทุก service, health checks, structured logs | ⬜ |
 
 รายละเอียดสเปคทั้งหมดอยู่ใน [CLAUDE.md](CLAUDE.md)

@@ -16,13 +16,17 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..batch.trends import is_provisional
 from ..config import get_settings
 from ..db import get_session, session_scope
 from ..logging import setup_logging
-from ..models import Event, RawArticle, Source
+from ..models import Cluster, Event, RawArticle, Scenario, Score, Source, WeakSignal
 from ..queue import ArticleQueue
 
 log = logging.getLogger("horizon.api")
+
+#: Sparkline length on the Trends page — 24 six-hour windows is six days.
+TREND_HISTORY_WINDOWS = 24
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
@@ -202,6 +206,152 @@ async def stats(session: SessionDep) -> Stats:
         )
         or 0,
     )
+
+
+# ── Analytics (phase 2) ──────────────────────────────────────────────────────
+
+
+@app.get("/api/v1/trends")
+async def list_trends(session: SessionDep, limit: int = 50):
+    """Active clusters ranked by their newest trend score.
+
+    `provisional` mirrors the batch job's rule: under 14 days of history the
+    z-scores are reported but must not be read as a breakout.
+    """
+    limit = min(limit, 200)
+    clusters = (
+        await session.execute(
+            select(Cluster).where(Cluster.status == "active").order_by(Cluster.last_seen.desc())
+        )
+    ).scalars()
+
+    now = datetime.now(UTC)
+    rows = []
+    for cluster in clusters:
+        history = list(
+            (
+                await session.execute(
+                    select(Score)
+                    .where(Score.cluster_id == cluster.id)
+                    .order_by(Score.window_start.desc())
+                    .limit(TREND_HISTORY_WINDOWS)
+                )
+            ).scalars()
+        )[::-1]
+        latest = history[-1] if history else None
+
+        categories = list(
+            (
+                await session.execute(
+                    select(func.unnest(Event.categories))
+                    .where(Event.cluster_id == cluster.id)
+                    .group_by(func.unnest(Event.categories))
+                    .order_by(func.count().desc())
+                    .limit(3)
+                )
+            ).scalars()
+        )
+
+        rows.append(
+            {
+                "cluster_id": str(cluster.id),
+                "label": cluster.label,
+                "event_count": cluster.event_count,
+                "status": cluster.status,
+                "first_seen": cluster.first_seen,
+                "last_seen": cluster.last_seen,
+                "trend_score": latest.trend_score if latest else None,
+                "z_frequency": latest.z_frequency if latest else None,
+                "z_velocity": latest.z_velocity if latest else None,
+                "z_acceleration": latest.z_acceleration if latest else None,
+                "provisional": is_provisional(cluster.first_seen, now),
+                "history": [s.frequency for s in history],
+                "categories": categories,
+            }
+        )
+
+    rows.sort(key=lambda r: (r["trend_score"] is None, -(r["trend_score"] or 0)))
+    return rows[:limit]
+
+
+@app.get("/api/v1/weak-signals")
+async def list_weak_signals(session: SessionDep, limit: int = 100, status: str | None = None):
+    limit = min(limit, 200)
+    query = select(WeakSignal).order_by(WeakSignal.combined_score.desc()).limit(limit)
+    if status:
+        query = query.where(WeakSignal.status == status)
+    signals = list((await session.execute(query)).scalars())
+
+    rows = []
+    for signal in signals:
+        title, categories = None, []
+        if signal.event_id:
+            event = await session.get(Event, signal.event_id)
+            if event:
+                title, categories = event.summary, list(event.categories or [])
+        elif signal.cluster_id:
+            cluster = await session.get(Cluster, signal.cluster_id)
+            if cluster:
+                title = cluster.label
+            categories = list(
+                (
+                    await session.execute(
+                        select(func.unnest(Event.categories))
+                        .where(Event.cluster_id == signal.cluster_id)
+                        .group_by(func.unnest(Event.categories))
+                        .order_by(func.count().desc())
+                        .limit(3)
+                    )
+                ).scalars()
+            )
+
+        rows.append(
+            {
+                "id": str(signal.id),
+                "event_id": str(signal.event_id) if signal.event_id else None,
+                "cluster_id": str(signal.cluster_id) if signal.cluster_id else None,
+                "title": title,
+                "novelty_score": signal.novelty_score,
+                "isolation_score": signal.isolation_score,
+                "burst_score": signal.burst_score,
+                "combined_score": signal.combined_score,
+                "status": signal.status,
+                "created_at": signal.created_at,
+                "categories": categories,
+            }
+        )
+    return rows
+
+
+@app.get("/api/v1/scenarios")
+async def list_scenarios(session: SessionDep, limit: int = 50):
+    """Populated by horizon-reasoner in phase 3; returns [] until then."""
+    limit = min(limit, 200)
+    scenarios = list(
+        (
+            await session.execute(
+                select(Scenario).order_by(Scenario.created_at.desc()).limit(limit)
+            )
+        ).scalars()
+    )
+    rows = []
+    for scenario in scenarios:
+        cluster = await session.get(Cluster, scenario.cluster_id)
+        rows.append(
+            {
+                "id": str(scenario.id),
+                "cluster_id": str(scenario.cluster_id),
+                "label": cluster.label if cluster else None,
+                "best_case": scenario.best_case,
+                "worst_case": scenario.worst_case,
+                "likely_case": scenario.likely_case,
+                "indicators": scenario.indicators or [],
+                "source_event_ids": [str(i) for i in (scenario.source_event_ids or [])],
+                "model": scenario.model,
+                "created_at": scenario.created_at,
+            }
+        )
+    return rows
 
 
 @app.get("/api/v1/events")
