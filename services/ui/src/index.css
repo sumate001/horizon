@@ -1,0 +1,24 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-ink-900 text-slate-200 antialiased;
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-lg border border-ink-500/60 bg-ink-800;
+  }
+  .chip {
+    @apply inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-medium leading-none;
+  }
+  .th {
+    @apply px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500;
+  }
+  .td {
+    @apply px-3 py-2.5 align-top text-sm;
+  }
+}

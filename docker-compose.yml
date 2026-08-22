@@ -109,6 +109,17 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  ui:
+    build:
+      context: ./services/ui
+    image: horizon-ui:latest
+    restart: unless-stopped
+    networks: [horizon]
+    ports:
+      - "8301:8301"
+    depends_on:
+      - api
+
 networks:
   horizon:
     name: horizon_net
