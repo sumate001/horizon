@@ -28,6 +28,15 @@ from ..batch.weak_signals import run_weak_signal_detection
 from ..config import get_settings
 from ..db import session_scope
 from ..logging import setup_logging
+from ..metrics import (
+    batch_job_duration,
+    batch_job_failures,
+    cluster_noise_events,
+    clusters_active,
+    serve_metrics,
+    timed,
+    weak_signal_candidates,
+)
 from ..models import Cluster, Score
 
 log = logging.getLogger("horizon.batch")
@@ -64,21 +73,30 @@ async def run_batch() -> None:
     log.info("batch run started")
 
     try:
-        await run_clustering()
+        with timed(batch_job_duration, "clustering"):
+            report = await run_clustering()
+        clusters_active.set(report.clusters)
+        cluster_noise_events.set(report.noise)
     except Exception as exc:
+        batch_job_failures.labels("clustering").inc()
         log.exception("clustering failed", extra={"error": str(exc)})
 
     try:
-        trends = await run_trend_scoring()
+        with timed(batch_job_duration, "trends"):
+            trends = await run_trend_scoring()
         if trends.breakouts:
             published = await _publish_breakouts(trends.breakouts)
             log.info("trend breakouts published", extra={"count": published})
     except Exception as exc:
+        batch_job_failures.labels("trends").inc()
         log.exception("trend scoring failed", extra={"error": str(exc)})
 
     try:
-        await run_weak_signal_detection()
+        with timed(batch_job_duration, "weak_signals"):
+            weak = await run_weak_signal_detection()
+        weak_signal_candidates.set(weak.candidates)
     except Exception as exc:
+        batch_job_failures.labels("weak_signals").inc()
         log.exception("weak signal detection failed", extra={"error": str(exc)})
 
     log.info("batch run finished")
@@ -87,6 +105,7 @@ async def run_batch() -> None:
 async def main() -> None:
     settings = get_settings()
     setup_logging("horizon.batch", settings.log_level)
+    serve_metrics(settings.metrics_port_batch, "batch")
 
     scheduler = AsyncIOScheduler(timezone="UTC")
     scheduler.add_job(

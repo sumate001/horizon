@@ -28,6 +28,14 @@ from ..config import get_settings
 from ..db import session_scope
 from ..integration.osint_desk import deliver, due_dispatches
 from ..logging import setup_logging
+from ..metrics import (
+    ahp_inconsistent,
+    deliveries_pending,
+    reasoning_duration,
+    serve_metrics,
+    signals_handled,
+    timed,
+)
 from ..models import Dispatch, WeakSignal
 from ..pipeline.vectors import utcnow
 from ..queue import get_redis
@@ -129,6 +137,7 @@ async def handle_signal(signal: SignalRef) -> uuid.UUID | None:
     )
 
     if await _recently_reasoned(signal):
+        signals_handled.labels(signal.signal_type, "cooldown").inc()
         log.info(
             "skipping — cluster reasoned about recently",
             extra={"cluster_id": str(signal.cluster_id)},
@@ -139,12 +148,15 @@ async def handle_signal(signal: SignalRef) -> uuid.UUID | None:
     if signal.cluster_id is not None:
         # Forces first: the scenario prompt reads the assessments they produce.
         try:
-            await score_driving_forces(signal.cluster_id)
+            with timed(reasoning_duration, "forces"):
+                report = await score_driving_forces(signal.cluster_id)
+            ahp_inconsistent.inc(sum(1 for r in report.results if not r.trustworthy))
         except Exception as exc:
             log.exception("driving force scoring failed", extra={"error": str(exc)})
 
         try:
-            scenario_id = await generate_scenario(signal.cluster_id)
+            with timed(reasoning_duration, "scenario"):
+                scenario_id = await generate_scenario(signal.cluster_id)
         except Exception as exc:
             log.exception("scenario generation failed", extra={"error": str(exc)})
 
@@ -154,6 +166,8 @@ async def handle_signal(signal: SignalRef) -> uuid.UUID | None:
     # First delivery attempt is immediate; the sweeper owns every retry after it.
     if get_settings().osint_desk_enabled:
         await deliver(dispatch_id)
+
+    signals_handled.labels(signal.signal_type, "reasoned").inc()
     return dispatch_id
 
 
@@ -172,7 +186,9 @@ async def delivery_loop(stop: asyncio.Event) -> None:
     log.info("delivery sweeper started", extra={"interval_s": DELIVERY_SWEEP_SECONDS})
     while not stop.is_set():
         try:
-            for dispatch_id in await due_dispatches():
+            due = await due_dispatches()
+            deliveries_pending.set(len(due))
+            for dispatch_id in due:
                 await deliver(dispatch_id)
         except Exception as exc:
             log.exception("delivery sweep failed", extra={"error": str(exc)})
@@ -221,6 +237,7 @@ async def consume(stop: asyncio.Event) -> None:
 async def main() -> None:
     settings = get_settings()
     setup_logging("horizon.reasoner", settings.log_level)
+    serve_metrics(settings.metrics_port_reasoner, "reasoner")
 
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()

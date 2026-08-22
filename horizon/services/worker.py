@@ -9,6 +9,7 @@ going. Nothing an article can do may kill the worker.
 """
 
 import asyncio
+import contextlib
 import logging
 import signal
 import uuid
@@ -20,7 +21,7 @@ from ..config import get_settings
 from ..db import session_scope
 from ..llm.ollama import OllamaError, get_ollama
 from ..logging import setup_logging
-from ..metrics import articles_processed, extraction_latency
+from ..metrics import articles_processed, extraction_latency, serve_metrics
 from ..models import Event, RawArticle, Source
 from ..pipeline.dedup import Candidate, Deduplicator, MinHashIndex, build_minhash
 from ..pipeline.extract import Extraction, ExtractionError, extract_event
@@ -285,6 +286,21 @@ class ArticleWorker:
 
         log.info("consumer stopped", extra={"worker": worker_no})
 
+    async def _watch_queue_depth(self) -> None:
+        """Keep the queue-depth gauge current.
+
+        Prometheus scrapes this process, and the poller only touches the gauge
+        once every 15 minutes — far too coarse to see a backlog forming.
+        """
+        interval = self.settings.queue_gauge_interval
+        while not self._stop.is_set():
+            try:
+                await self.queue.depth()
+            except Exception as exc:  # noqa: BLE001 — a gauge is not worth a crash
+                log.debug("queue depth probe failed", extra={"error": str(exc)})
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(self._stop.wait(), timeout=interval)
+
     async def run(self) -> None:
         await self.vectors.ensure_collection()
         log.info(
@@ -297,7 +313,8 @@ class ArticleWorker:
             },
         )
         await asyncio.gather(
-            *(self._consume(i) for i in range(self.settings.worker_concurrency))
+            *(self._consume(i) for i in range(self.settings.worker_concurrency)),
+            self._watch_queue_depth(),
         )
 
     def stop(self) -> None:
@@ -334,6 +351,7 @@ async def requeue_stuck() -> int:
 async def main() -> None:
     settings = get_settings()
     setup_logging("horizon.worker", settings.log_level)
+    serve_metrics(settings.metrics_port_worker, "worker")
 
     worker = ArticleWorker()
 

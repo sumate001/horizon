@@ -118,6 +118,16 @@ class Settings(BaseSettings):
     dashboard_base_url: str = "http://localhost:8301"
     log_level: str = "INFO"
 
+    # ── Observability ────────────────────────────────────────────────────────
+    # One port per service: every process keeps its own Prometheus registry, so
+    # a single shared endpoint would report only that process's counters.
+    metrics_port_poller: int = 9101
+    metrics_port_worker: int = 9102
+    metrics_port_batch: int = 9103
+    metrics_port_reasoner: int = 9104
+    #: How often the worker refreshes the queue-depth gauge.
+    queue_gauge_interval: int = 15
+
     @property
     def osint_desk_enabled(self) -> bool:
         return bool(self.osint_desk_base_url.strip())

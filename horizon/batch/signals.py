@@ -11,6 +11,7 @@ import uuid
 from typing import Literal
 
 from ..config import get_settings
+from ..metrics import signals_published
 from ..pipeline.vectors import utcnow
 from ..queue import get_redis
 
@@ -32,6 +33,7 @@ async def publish(signal_type: SignalType, ref_id: uuid.UUID, **payload) -> bool
         receivers = await get_redis().publish(
             settings.signals_channel, json.dumps(message, ensure_ascii=False)
         )
+        signals_published.labels(signal_type).inc()
         log.info(
             "signal published",
             extra={"signal_type": signal_type, "ref_id": str(ref_id), "receivers": receivers},

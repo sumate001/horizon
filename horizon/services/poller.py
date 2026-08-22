@@ -21,7 +21,7 @@ from sqlalchemy.dialects.postgresql import insert
 from ..config import get_settings
 from ..db import session_scope
 from ..logging import setup_logging
-from ..metrics import articles_fetched
+from ..metrics import articles_fetched, poll_duration, serve_metrics, source_fetch_failures, timed
 from ..models import RawArticle, Source
 from ..queue import ArticleQueue
 from ..sources import FetchedArticle, fetch_fulltext, fetch_source
@@ -110,22 +110,26 @@ async def poll_once() -> int:
         log.warning("no active sources configured")
         return 0
 
-    async with httpx.AsyncClient(
-        timeout=httpx.Timeout(settings.fetch_timeout),
-        headers={"User-Agent": USER_AGENT},
-    ) as client:
-        batches = await asyncio.gather(*(fetch_source(s, client) for s in sources))
-        for source, batch in zip(sources, batches, strict=True):
-            articles_fetched.labels(source.type).inc(len(batch))
-            log.info(
-                "fetched source", extra={"source": source.name, "articles": len(batch)}
-            )
+    with timed(poll_duration):
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(settings.fetch_timeout),
+            headers={"User-Agent": USER_AGENT},
+        ) as client:
+            batches = await asyncio.gather(*(fetch_source(s, client) for s in sources))
+            for source, batch in zip(sources, batches, strict=True):
+                articles_fetched.labels(source.type).inc(len(batch))
+                if not batch:
+                    # A feed that returns nothing every cycle is broken, not quiet.
+                    source_fetch_failures.labels(source.name).inc()
+                log.info(
+                    "fetched source", extra={"source": source.name, "articles": len(batch)}
+                )
 
-        fetched = [article for batch in batches for article in batch]
-        fetched = await _fill_bodies(fetched, client)
+            fetched = [article for batch in batches for article in batch]
+            fetched = await _fill_bodies(fetched, client)
 
-    created = await _persist(fetched)
-    enqueued = await queue.push_many(created)
+        created = await _persist(fetched)
+        enqueued = await queue.push_many(created)
 
     log.info(
         "poll complete",
@@ -143,6 +147,7 @@ async def poll_once() -> int:
 async def main() -> None:
     settings = get_settings()
     setup_logging("horizon.poller", settings.log_level)
+    serve_metrics(settings.metrics_port_poller, "poller")
 
     scheduler = AsyncIOScheduler(timezone="UTC")
     scheduler.add_job(

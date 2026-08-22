@@ -8,9 +8,9 @@ Horizon เป็นระบบ**หลัก** (radar) ส่วน [OSINT//DE
 การสืบสวนเชิงลึกโดยนักวิเคราะห์ Horizon ส่ง signal เข้าไปทาง webhook และรับ verdict กลับมา
 ทั้งสองระบบเป็น Docker stack แยกกันคนละชุด คุยกันผ่าน HTTP เท่านั้น ถ้าฝั่งใดล่ม อีกฝั่งทำงานต่อได้ปกติ
 
-**สถานะ: Phase 1–5 ครบ** — ingestion, dedup 2 ชั้น, clustering, trend scoring,
+**สถานะ: Phase 1–6 ครบทั้งหมด** — ingestion, dedup 2 ชั้น, clustering, trend scoring,
 weak signal detection, pub/sub, reasoner (AHP + ฉากทัศน์ + แจ้งเตือน), การเชื่อมต่อกับ OSINT//DESK
-สองทาง และ UI 5 หน้า เหลือ Phase 6 (hardening)
+สองทาง, UI 5 หน้า และ observability ครบทุก service
 
 ---
 
@@ -31,7 +31,7 @@ make logs          # ดู log สด
 |---|---|
 | API docs | http://localhost:8300/docs |
 | Health | http://localhost:8300/health |
-| Metrics (Prometheus) | http://localhost:8300/metrics |
+| Metrics (Prometheus) | http://localhost:8300/metrics — และดูหัวข้อ Observability |
 | สถิติ ingestion | http://localhost:8300/api/v1/stats |
 | เหตุการณ์ล่าสุด | http://localhost:8300/api/v1/events |
 
@@ -164,6 +164,35 @@ Jaccard จะตกต่ำกว่าเกณฑ์และตกไปใ
 
 ---
 
+## Observability
+
+**metrics แยกตาม service ไม่ใช่ endpoint เดียว** — แต่ละ service เป็นคนละ process
+จึงมี Prometheus registry ของตัวเอง endpoint เดียวที่ api จะรายงานแค่ counter ของ
+process นั้น ส่วน dedup hit rate ของ worker หรือ LLM failure rate ของ reasoner
+จะขึ้นเป็นศูนย์ทั้งที่ระบบทำงานอยู่ ซึ่งอันตรายกว่าไม่มี metrics เลย
+
+| service | endpoint | ตัวอย่างสิ่งที่เห็น |
+|---|---|---|
+| api | `:8300/metrics` | queue depth ตอน scrape |
+| poller | `:9101/metrics` | `articles_fetched`, `poll_duration`, `source_fetch_failures` |
+| worker | `:9102/metrics` | `llm_calls{outcome}`, `llm_latency`, `dedup_hits{layer,kind}`, `extraction_latency`, `queue_depth` |
+| batch | `:9103/metrics` | `batch_job_duration{job}`, `clusters_active`, `cluster_noise_events`, `signals_published` |
+| reasoner | `:9104/metrics` | `signals_handled{outcome}`, `reasoning_duration{stage}`, `delivery_attempts{status}`, `ahp_inconsistent` |
+
+scrape config พร้อมใช้อยู่ที่ [`infra/prometheus.yml`](infra/prometheus.yml)
+
+ตัวอย่างค่าจริงจากการรัน: worker ใช้ **17 วินาที/บทความ** สำหรับ extract และ
+**0.98 วินาที** สำหรับ embed · batch: clustering 1.7 วิ, trends 1.0 วิ, weak signals 3.7 วิ
+
+**health check ครบทุก container** — service ที่ไม่มี HTTP surface ใช้ endpoint metrics
+ของตัวเองเป็นตัวตรวจ liveness ถ้า event loop ค้าง มันจะหยุดตอบและถูกรายงานว่า unhealthy
+แทนที่จะดูเหมือนว่างงานอยู่เฉย ๆ
+
+**log เป็น JSON บรรทัดเดียวต่อ record** ทุก service — ค่าที่ส่งผ่าน `extra={...}`
+จะกลายเป็น field ระดับบนสุด พร้อมส่งเข้า log shipper ได้ทันที
+
+---
+
 ## คำสั่งที่ใช้บ่อย
 
 ```bash
@@ -260,6 +289,6 @@ contracts/               # JSON Schema ที่ใช้ร่วมกับ O
 | 3 | Reasoner: driving force (AHP), scenario, Telegram/LINE | ✅ |
 | 4 | Integration: outbound webhook + inbound verdict endpoint | ✅ |
 | 5 | Dashboard (Overview, Trends, Weak Signals, Scenarios, Sources) | ✅ |
-| 6 | Hardening: metrics ครบทุก service, health checks, structured logs | ⬜ |
+| 6 | Hardening: metrics ครบทุก service, health checks, structured logs | ✅ |
 
 รายละเอียดสเปคทั้งหมดอยู่ใน [CLAUDE.md](CLAUDE.md)

@@ -108,12 +108,21 @@ services:
       timeout: 5s
       retries: 3
 
+  # Background services have no request surface, so their metrics endpoint
+  # doubles as the liveness probe: if the event loop is wedged, it stops
+  # answering and the container is reported unhealthy instead of quietly idle.
   poller:
     <<: *app
     command: ["python", "-m", "horizon.services.poller"]
     depends_on:
       migrate:
         condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9101/metrics"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
   worker:
     <<: *app
@@ -121,6 +130,12 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9102/metrics"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
   batch:
     <<: *app
@@ -128,6 +143,13 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9103/metrics"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      # Clustering on a full window can hold the loop for minutes on first run.
+      start_period: 300s
 
   reasoner:
     <<: *app
@@ -135,6 +157,12 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9104/metrics"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
   ui:
     build:
@@ -146,6 +174,12 @@ services:
       - "8301:8301"
     depends_on:
       - api
+    healthcheck:
+      # 127.0.0.1, not localhost: the latter resolves to ::1 first in a container.
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8301/ >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
 networks:
   horizon:

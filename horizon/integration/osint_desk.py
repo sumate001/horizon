@@ -22,6 +22,7 @@ from sqlalchemy import select
 
 from ..config import get_settings
 from ..db import session_scope
+from ..metrics import delivery_attempts
 from ..models import Dispatch
 from ..pipeline.vectors import utcnow
 
@@ -112,6 +113,7 @@ async def deliver(dispatch_id: uuid.UUID, *, client: httpx.AsyncClient | None = 
         attempts = dispatch.delivery_attempts
 
     outcome = await post_signal(payload, client=client)
+    delivery_attempts.labels(outcome.status).inc()
 
     async with session_scope() as session:
         dispatch = await session.get(Dispatch, dispatch_id)

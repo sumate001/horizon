@@ -1,0 +1,35 @@
+# Scrape config for Horizon.
+#
+# Every service keeps its own Prometheus registry, so there is one target per
+# process rather than one endpoint for the stack. Point an existing Prometheus
+# at this, or run one on the horizon_net network.
+#
+# The `job` label is what distinguishes services; the metric names themselves
+# are shared (horizon_llm_calls_total is emitted by worker and reasoner alike,
+# and summing across jobs is usually what you want).
+
+global:
+  scrape_interval: 30s
+  scrape_timeout: 10s
+
+scrape_configs:
+  - job_name: horizon-api
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["api:8300"]
+
+  - job_name: horizon-poller
+    static_configs:
+      - targets: ["poller:9101"]
+
+  - job_name: horizon-worker
+    static_configs:
+      - targets: ["worker:9102"]
+
+  - job_name: horizon-batch
+    static_configs:
+      - targets: ["batch:9103"]
+
+  - job_name: horizon-reasoner
+    static_configs:
+      - targets: ["reasoner:9104"]
