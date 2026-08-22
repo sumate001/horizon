@@ -8,9 +8,9 @@ Horizon เป็นระบบ**หลัก** (radar) ส่วน [OSINT//DE
 การสืบสวนเชิงลึกโดยนักวิเคราะห์ Horizon ส่ง signal เข้าไปทาง webhook และรับ verdict กลับมา
 ทั้งสองระบบเป็น Docker stack แยกกันคนละชุด คุยกันผ่าน HTTP เท่านั้น ถ้าฝั่งใดล่ม อีกฝั่งทำงานต่อได้ปกติ
 
-**สถานะ: Phase 1 + 2 + 3 + Dashboard** — ingestion, dedup 2 ชั้น, clustering, trend scoring,
-weak signal detection, pub/sub, reasoner (AHP + ฉากทัศน์ + แจ้งเตือน) และ UI 5 หน้า
-เหลือ Phase 4 (webhook ไป OSINT//DESK) และ Phase 6 (hardening)
+**สถานะ: Phase 1–5 ครบ** — ingestion, dedup 2 ชั้น, clustering, trend scoring,
+weak signal detection, pub/sub, reasoner (AHP + ฉากทัศน์ + แจ้งเตือน), การเชื่อมต่อกับ OSINT//DESK
+สองทาง และ UI 5 หน้า เหลือ Phase 6 (hardening)
 
 ---
 
@@ -71,8 +71,39 @@ RHYTHM 2 — BATCH (ทุก 3 ชม.)                ← Phase 2 ✅
   A clustering (HDBSCAN) → B trend scoring → C weak signals → publish `horizon:signals`
 
 RHYTHM 3 — EVENT-DRIVEN (subscriber)         ← Phase 3 ✅
-  reasoner: driving force (PESTEL+AHP) → scenario (RAG) → Telegram/LINE → dispatch record
-  (การส่ง webhook ไป OSINT//DESK อยู่ใน Phase 4 — payload สร้างและเก็บไว้แล้ว)
+  reasoner: driving force (PESTEL+AHP) → scenario (RAG) → Telegram/LINE
+            → dispatch record → POST ไป OSINT//DESK (Phase 4 ✅)
+```
+
+## การเชื่อมต่อกับ OSINT//DESK
+
+สองทาง คุยกันผ่าน HTTP เท่านั้น สัญญาอยู่ใน `contracts/` และเป็น source of truth ร่วมกันทั้งสอง repo
+
+**ขาออก** `POST {OSINT_DESK_BASE_URL}/api/v1/signals/inbound` พร้อม `X-API-Key`
+คาดหวัง `202 {"osint_signal_id": "..."}`
+
+retry แบบ exponential backoff **30s → 2m → 10m → 1h** แล้วยอมแพ้เป็น `failed`
+รวมกว่า 1 ชั่วโมง จึงเก็บ state ลงตาราง (`delivery_attempts`, `next_attempt_at`, `last_error`)
+ไม่ใช่ในหน่วยความจำ — restart ระหว่างทางแล้วทำต่อได้ ไม่ใช่หายไปเฉย ๆ
+
+- 5xx / 408 / 425 / 429 → retry
+- 4xx อื่น ๆ → `failed` ทันที (ส่ง body เดิมซ้ำก็โดนปฏิเสธเหมือนเดิม)
+- `OSINT_DESK_BASE_URL` ว่าง → `disabled` ข้ามเงียบ ๆ ไม่ใช่ความล้มเหลว
+- ทุกกรณี **ไม่บล็อก** การแจ้งเตือนหรือขั้นตอนอื่นของ pipeline
+
+**ขาเข้า** `POST /api/v1/verdicts` พร้อม `X-API-Key` → `200 {"ok": true}`
+key ผิด `401` · `signal_id` ไม่รู้จัก `404` · body ผิดรูป `422`
+
+verdict ที่ส่งซ้ำจะ**แก้ค่าเดิม ไม่สร้างแถวใหม่** — คลังข้อมูลป้อนกลับต้องการคำตอบล่าสุด
+ของนักวิเคราะห์ ไม่ใช่ทุกครั้งที่เปลี่ยนใจ `true_signal`/`false_signal` เลื่อนสถานะ
+weak signal เป็น `verified_true`/`verified_false` ส่วน `inconclusive` ไม่เลื่อน
+เพราะคนที่ตัดสินไม่ได้ยังไม่ได้บอกอะไรให้เรียนรู้
+
+**ส่งออกคลังข้อมูล** `GET /api/v1/verdicts/export` → JSONL บรรทัดละสัญญาณ
+จับคู่คะแนนที่ส่งไปกับ verdict ที่ได้กลับมา สำหรับปรับ threshold แบบ offline
+
+```bash
+curl -s localhost:8300/api/v1/verdicts/export -o corpus.jsonl
 ```
 
 ### Reasoner ทำไมต้อง gate ไว้หลัง threshold
@@ -207,6 +238,8 @@ horizon/
 │   ├── scenario.py      # step 9 — RAG แล้วเขียนฉากทัศน์ พร้อม source_event_ids
 │   ├── alerts.py        # Telegram + LINE (ไม่ตั้ง token = ข้ามเงียบ ๆ)
 │   └── dispatch.py      # สร้าง payload ตาม contract + บันทึก dispatches
+├── integration/
+│   └── osint_desk.py    # webhook ขาออก + ตาราง backoff ที่เก็บลง DB
 ├── sources/             # rss / searxng fetcher + full-text extraction
 └── services/            # poller / worker / batch / reasoner / api
 services/ui/             # React + Vite + Tailwind ผ่าน nginx (พร้อม proxy /api)
@@ -225,7 +258,7 @@ contracts/               # JSON Schema ที่ใช้ร่วมกับ O
 | 1 | Skeleton + ingestion + dedup | ✅ |
 | 2 | Batch: clustering, trend scoring, weak signals, pub/sub | ✅ |
 | 3 | Reasoner: driving force (AHP), scenario, Telegram/LINE | ✅ |
-| 4 | Integration: outbound webhook + inbound verdict endpoint | ⬜ |
+| 4 | Integration: outbound webhook + inbound verdict endpoint | ✅ |
 | 5 | Dashboard (Overview, Trends, Weak Signals, Scenarios, Sources) | ✅ |
 | 6 | Hardening: metrics ครบทุก service, health checks, structured logs | ⬜ |
 

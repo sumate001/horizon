@@ -26,6 +26,7 @@ from sqlalchemy import or_, select
 
 from ..config import get_settings
 from ..db import session_scope
+from ..integration.osint_desk import deliver, due_dispatches
 from ..logging import setup_logging
 from ..models import Dispatch, WeakSignal
 from ..pipeline.vectors import utcnow
@@ -35,6 +36,10 @@ from ..reasoner.forces import score_driving_forces
 from ..reasoner.scenario import generate_scenario
 
 log = logging.getLogger("horizon.reasoner")
+
+#: How often to look for retries that have come due. The shortest backoff step
+#: is 30s, so anything much longer would add latency to every retry.
+DELIVERY_SWEEP_SECONDS = 20
 
 
 def parse_signal(raw: str) -> SignalRef | None:
@@ -145,7 +150,35 @@ async def handle_signal(signal: SignalRef) -> uuid.UUID | None:
 
     dispatch_id, _ = await record_dispatch(signal, scenario_id)
     await _mark_dispatched(signal)
+
+    # First delivery attempt is immediate; the sweeper owns every retry after it.
+    if get_settings().osint_desk_enabled:
+        await deliver(dispatch_id)
     return dispatch_id
+
+
+async def delivery_loop(stop: asyncio.Event) -> None:
+    """Retry outbound deliveries whose backoff has elapsed.
+
+    Runs beside the subscriber rather than as its own service: the reasoner
+    already owns dispatch rows, and a delivery that fails must not hold up the
+    next signal.
+    """
+    settings = get_settings()
+    if not settings.osint_desk_enabled:
+        log.info("OSINT_DESK_BASE_URL unset — outbound delivery disabled")
+        return
+
+    log.info("delivery sweeper started", extra={"interval_s": DELIVERY_SWEEP_SECONDS})
+    while not stop.is_set():
+        try:
+            for dispatch_id in await due_dispatches():
+                await deliver(dispatch_id)
+        except Exception as exc:
+            log.exception("delivery sweep failed", extra={"error": str(exc)})
+
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(stop.wait(), timeout=DELIVERY_SWEEP_SECONDS)
 
 
 async def consume(stop: asyncio.Event) -> None:
@@ -204,7 +237,7 @@ async def main() -> None:
             "line": bool(settings.line_notify_token),
         },
     )
-    await consume(stop)
+    await asyncio.gather(consume(stop), delivery_loop(stop))
     log.info("reasoner stopped")
 
 

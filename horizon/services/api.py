@@ -4,6 +4,7 @@ Phase 1 surface: health, Prometheus metrics, source registry CRUD and ingestion
 stats for the dashboard. The inbound verdict endpoint arrives in phase 4.
 """
 
+import json
 import logging
 import uuid
 from contextlib import asynccontextmanager
@@ -20,7 +21,17 @@ from ..batch.trends import is_provisional
 from ..config import get_settings
 from ..db import get_session, session_scope
 from ..logging import setup_logging
-from ..models import Cluster, Event, RawArticle, Scenario, Score, Source, WeakSignal
+from ..models import (
+    Cluster,
+    Dispatch,
+    Event,
+    RawArticle,
+    Scenario,
+    Score,
+    Source,
+    Verdict,
+    WeakSignal,
+)
 from ..queue import ArticleQueue
 
 log = logging.getLogger("horizon.api")
@@ -205,6 +216,137 @@ async def stats(session: SessionDep) -> Stats:
             select(func.count()).select_from(Source).where(Source.active.is_(True))
         )
         or 0,
+    )
+
+
+# ── Verdict feedback from OSINT//DESK (phase 4) ──────────────────────────────
+
+
+class VerdictIn(BaseModel):
+    """Mirrors contracts/verdict.schema.json — do not rename fields."""
+
+    model_config = {"extra": "forbid"}
+
+    signal_id: uuid.UUID
+    osint_signal_id: str
+    verdict: Literal["true_signal", "false_signal", "inconclusive"]
+    analyst_note: str | None = None
+    closed_at: datetime
+
+
+#: Only a decided verdict moves the weak signal on; "inconclusive" leaves it
+#: dispatched, because an analyst who could not tell has not told us anything.
+VERDICT_TO_STATUS = {"true_signal": "verified_true", "false_signal": "verified_false"}
+
+
+async def require_inbound_key(x_api_key: Annotated[str | None, Header()] = None) -> None:
+    """Guards the verdict endpoint. Unlike the dashboard writes, this one is
+    reachable from another system, so an unset key is refused rather than open."""
+    expected = get_settings().horizon_api_key
+    if not expected or x_api_key != expected:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid API key")
+
+
+@app.post(
+    "/api/v1/verdicts", status_code=status.HTTP_200_OK, dependencies=[Depends(require_inbound_key)]
+)
+async def receive_verdict(payload: VerdictIn, session: SessionDep) -> dict:
+    """Record an analyst's verdict on a signal we sent.
+
+    These labels are the feedback corpus for future threshold tuning, so a
+    revised verdict replaces the old one rather than appending a second row.
+    """
+    dispatch = await session.get(Dispatch, payload.signal_id)
+    if dispatch is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "unknown signal_id")
+
+    existing = await session.scalar(
+        select(Verdict).where(Verdict.dispatch_id == payload.signal_id)
+    )
+    if existing is None:
+        session.add(
+            Verdict(
+                dispatch_id=payload.signal_id,
+                verdict=payload.verdict,
+                analyst_note=payload.analyst_note,
+                received_at=payload.closed_at,
+            )
+        )
+    else:
+        log.info(
+            "verdict revised",
+            extra={
+                "signal_id": str(payload.signal_id),
+                "from": existing.verdict,
+                "to": payload.verdict,
+            },
+        )
+        existing.verdict = payload.verdict
+        existing.analyst_note = payload.analyst_note
+        existing.received_at = payload.closed_at
+
+    if not dispatch.osint_desk_signal_id:
+        dispatch.osint_desk_signal_id = payload.osint_signal_id
+
+    new_status = VERDICT_TO_STATUS.get(payload.verdict)
+    if new_status and dispatch.signal_type == "weak_signal":
+        weak = await session.get(WeakSignal, dispatch.ref_id)
+        if weak is not None:
+            weak.status = new_status
+
+    log.info(
+        "verdict received",
+        extra={
+            "signal_id": str(payload.signal_id),
+            "verdict": payload.verdict,
+            "signal_type": dispatch.signal_type,
+        },
+    )
+    return {"ok": True}
+
+
+@app.get("/api/v1/verdicts/export")
+async def export_verdicts(session: SessionDep) -> Response:
+    """The labelled corpus as JSONL, one signal per line, for offline analysis.
+
+    Each line pairs the payload we sent with the verdict that came back, which
+    is what threshold tuning needs — the scores alongside the ground truth.
+    """
+    rows = (
+        await session.execute(
+            select(Dispatch, Verdict)
+            .join(Verdict, Verdict.dispatch_id == Dispatch.id)
+            .order_by(Verdict.received_at)
+        )
+    ).all()
+
+    def line(dispatch: Dispatch, verdict: Verdict) -> str:
+        payload = dispatch.payload or {}
+        return json.dumps(
+            {
+                "signal_id": str(dispatch.id),
+                "signal_type": dispatch.signal_type,
+                "ref_id": str(dispatch.ref_id),
+                "osint_signal_id": dispatch.osint_desk_signal_id,
+                "combined_score": payload.get("combined_score"),
+                "trend_score": payload.get("trend_score"),
+                "categories": payload.get("categories", []),
+                "title": payload.get("title"),
+                "force_assessments": payload.get("force_assessments", []),
+                "source_count": len(payload.get("top_events", [])),
+                "verdict": verdict.verdict,
+                "analyst_note": verdict.analyst_note,
+                "dispatched_at": dispatch.created_at.isoformat(),
+                "closed_at": verdict.received_at.isoformat(),
+            },
+            ensure_ascii=False,
+        )
+
+    body = "\n".join(line(d, v) for d, v in rows)
+    return Response(
+        content=body + ("\n" if body else ""),
+        media_type="application/x-ndjson",
+        headers={"Content-Disposition": 'attachment; filename="horizon-verdicts.jsonl"'},
     )
 
 

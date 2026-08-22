@@ -278,6 +278,7 @@ class Dispatch(Base):
         Index("ix_dispatches_ref_id", "ref_id"),
         Index("ix_dispatches_created_at", "created_at"),
         Index("ix_dispatches_osint_desk_status", "osint_desk_status"),
+        Index("ix_dispatches_delivery_due", "osint_desk_status", "next_attempt_at"),
     )
 
     id: Mapped[uuid.UUID] = _pk()
@@ -289,6 +290,10 @@ class Dispatch(Base):
     )
     osint_desk_signal_id: Mapped[str | None] = mapped_column(Text)
     payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    # Retry state, persisted so the 30s→2m→10m→1h schedule survives a restart.
+    delivery_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -300,6 +305,8 @@ class Verdict(Base):
         _check("verdict", VERDICTS, "ck_verdicts_verdict"),
         Index("ix_verdicts_dispatch_id", "dispatch_id"),
         Index("ix_verdicts_received_at", "received_at"),
+        # One verdict per dispatch: the corpus wants the analyst's current answer.
+        Index("ix_verdicts_dispatch_unique", "dispatch_id", unique=True),
     )
 
     id: Mapped[uuid.UUID] = _pk()
