@@ -8,8 +8,9 @@ Horizon เป็นระบบ**หลัก** (radar) ส่วน [OSINT//DE
 การสืบสวนเชิงลึกโดยนักวิเคราะห์ Horizon ส่ง signal เข้าไปทาง webhook และรับ verdict กลับมา
 ทั้งสองระบบเป็น Docker stack แยกกันคนละชุด คุยกันผ่าน HTTP เท่านั้น ถ้าฝั่งใดล่ม อีกฝั่งทำงานต่อได้ปกติ
 
-**สถานะ: Phase 1 + 2 + Dashboard** — ingestion, dedup 2 ชั้น, clustering, trend scoring,
-weak signal detection, pub/sub และ UI 5 หน้า เหลือ Phase 3 (reasoner) และ Phase 4 (webhook)
+**สถานะ: Phase 1 + 2 + 3 + Dashboard** — ingestion, dedup 2 ชั้น, clustering, trend scoring,
+weak signal detection, pub/sub, reasoner (AHP + ฉากทัศน์ + แจ้งเตือน) และ UI 5 หน้า
+เหลือ Phase 4 (webhook ไป OSINT//DESK) และ Phase 6 (hardening)
 
 ---
 
@@ -69,9 +70,34 @@ RHYTHM 1 — STREAMING (ทุก 15 นาที)          ← Phase 1 ✅
 RHYTHM 2 — BATCH (ทุก 3 ชม.)                ← Phase 2 ✅
   A clustering (HDBSCAN) → B trend scoring → C weak signals → publish `horizon:signals`
 
-RHYTHM 3 — EVENT-DRIVEN (subscriber)         ← Phase 3
-  reasoner: driving force (PESTEL+AHP) → scenario (RAG) → Telegram/LINE → webhook ไป OSINT//DESK
+RHYTHM 3 — EVENT-DRIVEN (subscriber)         ← Phase 3 ✅
+  reasoner: driving force (PESTEL+AHP) → scenario (RAG) → Telegram/LINE → dispatch record
+  (การส่ง webhook ไป OSINT//DESK อยู่ใน Phase 4 — payload สร้างและเก็บไว้แล้ว)
 ```
+
+### Reasoner ทำไมต้อง gate ไว้หลัง threshold
+
+การให้คะแนนแรงขับเคลื่อนหนึ่งสัญญาณใช้ LLM ประมาณ **96 ครั้ง**:
+6 แรงขับเคลื่อน × (คลัสเตอร์ที่ trigger + คู่แข่ง 5 ตัว → 15 คู่) + คำถาม uncertainty อีก 6
+
+วัดจริงบน gemma4:12b ≈ 2 นาทีต่อแรงขับเคลื่อน รวมราว 12 นาทีต่อสัญญาณ นี่คือเหตุผลที่
+Rhythm 3 เป็น subscriber ที่นอนรอ ไม่ใช่ cron — และมี `REASONER_COOLDOWN_HOURS` (6 ชม.)
+กันไม่ให้คลัสเตอร์เดิมถูกคิดซ้ำทุกรอบ batch การเปรียบเทียบระหว่างคู่แข่งด้วยกันเอง
+(ไม่เกี่ยวกับตัวที่ trigger) ถูก cache ไว้ใช้ซ้ำภายในรอบเดียวกัน
+
+**AHP กับคำตอบแบบ A/B:** โมเดลตอบได้แค่ "A หรือ B" ไม่มีน้ำหนักความชอบติดมา ทุกชัยชนะ
+จึงบันทึกที่ความเข้มเดียวกัน ซึ่งทำให้ consistency ratio เพี้ยน — ห่วงโซ่ A>B>C ที่ไม่ขัดแย้งเลย
+ควรได้ CR ต่ำ แต่ถ้าใช้ความเข้ม 3.0 จะได้ 0.117 ซึ่งเกินเกณฑ์ 0.10 ของ Saaty ไปแล้ว
+วัดแล้วเลือก **2.0** เพราะแยกได้สะอาด:
+
+| ความเข้ม | เรียงลำดับได้ (n=3 / n=6) | ขัดแย้งเป็นวง (n=3) | n=6 มี 2 จุดขัดแย้ง |
+|---|---|---|---|
+| 1.5 | 0.016 / 0.015 | 0.144 | 0.052 ← หลุดเกณฑ์ |
+| **2.0** | **0.046 / 0.044** | **0.431** | **0.159** |
+| 3.0 | 0.117 ← หลุดเกณฑ์ | 1.149 | 0.439 |
+
+คู่ที่โมเดลตอบไม่ได้จะถูก**ข้าม** ไม่ใช่เดา — AHP อ่านว่า "ไม่แสดงความชอบ" ส่วนผลที่ CR
+เกินเกณฑ์ยังบันทึกลงฐานข้อมูลพร้อม log เตือน เพราะการซ่อนไว้จะทำให้นักวิเคราะห์งงว่าทำไมแรงนั้นหายไป
 
 ### Clustering ปรับค่าจากข้อมูลจริง ไม่ใช่ค่าตามทฤษฎี
 
@@ -175,8 +201,14 @@ horizon/
 │   ├── weak_signals.py  # step 6 — novelty + Isolation Forest + burst
 │   ├── burst.py         # Kleinberg 2-state automaton (Viterbi)
 │   └── signals.py       # publish ไป redis channel horizon:signals
+├── reasoner/
+│   ├── ahp.py           # eigenvector + consistency ratio — ไม่มี I/O เทสต์ค่าตรงได้
+│   ├── forces.py        # step 7 — เปรียบเทียบคู่ด้วย LLM แล้วเข้า AHP
+│   ├── scenario.py      # step 9 — RAG แล้วเขียนฉากทัศน์ พร้อม source_event_ids
+│   ├── alerts.py        # Telegram + LINE (ไม่ตั้ง token = ข้ามเงียบ ๆ)
+│   └── dispatch.py      # สร้าง payload ตาม contract + บันทึก dispatches
 ├── sources/             # rss / searxng fetcher + full-text extraction
-└── services/            # poller / worker / batch / api
+└── services/            # poller / worker / batch / reasoner / api
 services/ui/             # React + Vite + Tailwind ผ่าน nginx (พร้อม proxy /api)
 contracts/               # JSON Schema ที่ใช้ร่วมกับ OSINT//DESK — source of truth
 ```
@@ -192,7 +224,7 @@ contracts/               # JSON Schema ที่ใช้ร่วมกับ O
 |---|---|---|
 | 1 | Skeleton + ingestion + dedup | ✅ |
 | 2 | Batch: clustering, trend scoring, weak signals, pub/sub | ✅ |
-| 3 | Reasoner: driving force (AHP), scenario, Telegram/LINE | ⬜ |
+| 3 | Reasoner: driving force (AHP), scenario, Telegram/LINE | ✅ |
 | 4 | Integration: outbound webhook + inbound verdict endpoint | ⬜ |
 | 5 | Dashboard (Overview, Trends, Weak Signals, Scenarios, Sources) | ✅ |
 | 6 | Hardening: metrics ครบทุก service, health checks, structured logs | ⬜ |

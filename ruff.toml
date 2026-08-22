@@ -16,6 +16,9 @@ ignore = [
 # `# noqa: BLE001`, which keeps accidental blind excepts from slipping in.
 
 [lint.per-file-ignores]
+# Prompt bodies are content, not code. Rewrapping a line changes what the model
+# reads, so line length is not ours to enforce here.
+"horizon/llm/prompts.py" = ["E501"]
 # conftest pins env vars before importing horizon.config, which caches settings.
 "tests/conftest.py" = ["E402"]
 "migrations/versions/*" = ["E501"]

@@ -198,6 +198,17 @@ class VectorStore:
             if point.payload and point.payload.get("cluster_id")
         ]
 
+    async def get_centroid(self, cluster_id: uuid.UUID) -> list[float] | None:
+        await self.ensure_centroids()
+        points = await self._client.retrieve(
+            collection_name=self.centroid_collection,
+            ids=[str(cluster_id)],
+            with_vectors=True,
+        )
+        if not points or not points[0].vector:
+            return None
+        return list(points[0].vector)
+
     async def clear_centroids(self) -> None:
         """Centroids are fully rebuilt each clustering run — stale ones would
         keep matching clusters that no longer exist."""

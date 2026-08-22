@@ -8,8 +8,8 @@
 #   horizon   postgres 5433  redis 6380  qdrant 6343  api 8300  ui 8301
 #   osintdesk nginx 80/443   api 8000    neo4j 7474/7687  (pg/redis not exposed)
 #
-# Phases 1, 2 and (early) 5: poller / worker / api / batch / ui.
-# horizon-reasoner arrives in phase 3.
+# Phases 1, 2, 3 and (early) 5:
+# poller / worker / batch / reasoner / api / ui.
 
 name: horizon
 
@@ -125,6 +125,13 @@ services:
   batch:
     <<: *app
     command: ["python", "-m", "horizon.services.batch"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  reasoner:
+    <<: *app
+    command: ["python", "-m", "horizon.services.reasoner"]
     depends_on:
       migrate:
         condition: service_completed_successfully

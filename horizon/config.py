@@ -73,6 +73,18 @@ class Settings(BaseSettings):
 
     gate_min_credibility: float = 0.2
 
+    # ── Reasoner ─────────────────────────────────────────────────────────────
+    #: Rivals the triggered cluster is compared against. Cost is quadratic:
+    #: n=1+ahp_top_clusters alternatives means n(n−1)/2 LLM calls per force.
+    ahp_top_clusters: int = 5
+    #: Cluster event summaries fed to the scenario prompt, newest first.
+    scenario_event_cap: int = 50
+    scenario_trend_windows: int = 10
+    scenario_related_clusters: int = 3
+    #: Skip anything already reasoned about this recently — the batch republishes
+    #: the same cluster every run until its score falls back under threshold.
+    reasoner_cooldown_hours: int = 6
+
     # ── Integration ──────────────────────────────────────────────────────────
     osint_desk_base_url: str = ""
     osint_desk_api_key: str = ""
