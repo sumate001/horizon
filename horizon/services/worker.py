@@ -84,6 +84,9 @@ class ArticleWorker:
                 return article.status
 
             title, body, url = article.title or "", article.body or "", article.url
+            # Anchor for relative dates in the text. The poller runs every 15 min,
+            # so fetched_at is within minutes of publication for live feeds.
+            published_at = article.fetched_at
             credibility = DEFAULT_CREDIBILITY
             if article.source_id:
                 source = await session.get(Source, article.source_id)
@@ -99,7 +102,9 @@ class ArticleWorker:
 
         # Steps 1 + 3 — extraction and classification
         try:
-            extraction = await extract_event(title, body, client=self.ollama)
+            extraction = await extract_event(
+                title, body, published_at=published_at, client=self.ollama
+            )
         except ExtractionError as exc:
             log.warning("extraction failed", extra={"url": url, "error": str(exc)})
             await self._finish(article_id, "failed")

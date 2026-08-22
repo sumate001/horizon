@@ -7,9 +7,9 @@ may raise past `extract_event` except `ExtractionError`.
 
 import logging
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime
 
-from ..config import CATEGORIES, get_settings
+from ..config import BANGKOK, CATEGORIES, get_settings
 from ..llm.ollama import OllamaClient, extract_json, get_ollama
 from ..llm.prompts import extraction_messages, repair_messages
 
@@ -17,9 +17,6 @@ log = logging.getLogger(__name__)
 
 MAX_CATEGORIES = 3
 SUMMARY_LIMIT = 280
-
-#: Thai content without an explicit offset is local time.
-BANGKOK = timezone(timedelta(hours=7))
 
 
 class ExtractionError(RuntimeError):
@@ -115,14 +112,21 @@ def normalize(payload: dict) -> Extraction:
 
 
 async def extract_event(
-    title: str, body: str, *, client: OllamaClient | None = None
+    title: str,
+    body: str,
+    *,
+    published_at: datetime | None = None,
+    client: OllamaClient | None = None,
 ) -> Extraction:
-    """Extract + classify one article. Raises ExtractionError if unrecoverable."""
+    """Extract + classify one article. Raises ExtractionError if unrecoverable.
+
+    `published_at` anchors relative dates in the text; see `extraction_messages`.
+    """
     llm = client or get_ollama()
     settings = get_settings()
 
     raw = await llm.chat_raw(
-        extraction_messages(title, body),
+        extraction_messages(title, body, published_at=published_at),
         purpose="extract",
         model=settings.extract_model,
     )

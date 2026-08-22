@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+from horizon.llm.prompts import extraction_messages
 from horizon.pipeline.extract import (
     BANGKOK,
     SUMMARY_LIMIT,
@@ -160,3 +161,19 @@ async def test_extract_event_raises_when_repair_also_fails():
     with pytest.raises(ExtractionError):
         await extract_event("หัวข้อ", "เนื้อหา", client=client)
     assert client.calls == ["extract", "extract_repair"]
+
+
+# ── the publication-date anchor ──────────────────────────────────────────────
+
+
+def test_prompt_carries_the_publication_date_in_bangkok_time():
+    """Thai text writes "21 ส.ค." with no year; without this anchor the model
+    invents one, which then skews the temporal feature during clustering."""
+    published = datetime(2026, 8, 21, 20, 0, tzinfo=UTC)  # 03:00 on the 22nd in Bangkok
+    prompt = extraction_messages("หัวข้อ", "เนื้อหา", published_at=published)[1]["content"]
+    assert "วันที่เผยแพร่ข่าว: 2026-08-22" in prompt
+
+
+def test_prompt_says_unknown_when_no_publication_date():
+    prompt = extraction_messages("หัวข้อ", "เนื้อหา")[1]["content"]
+    assert "วันที่เผยแพร่ข่าว: ไม่ทราบ" in prompt

@@ -1,8 +1,13 @@
 """Central settings. Every threshold and weight lives here — never hardcode one."""
 
+from datetime import timedelta, timezone
 from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+#: Storage and comparison are UTC everywhere; this is only for reading and
+#: rendering Thai-language dates, which are always local time.
+BANGKOK = timezone(timedelta(hours=7))
 
 CATEGORIES: tuple[str, ...] = (
     "การเมือง",
