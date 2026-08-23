@@ -140,6 +140,9 @@ async def build_payload(
         "summary": summary,
         "top_events": top_events,
         "force_assessments": await _force_assessments(signal.cluster_id),
+        # Lets the receiver come back for the full timeline at the moment an
+        # analyst accepts, which is later and fuller than this snapshot.
+        "cluster_id": str(signal.cluster_id) if signal.cluster_id else None,
         "scenario_id": str(scenario_id) if scenario_id else None,
         "created_at": utcnow().isoformat(),
     }

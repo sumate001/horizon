@@ -348,6 +348,7 @@ def test_a_dispatch_payload_validates_against_the_shared_schema():
         "force_assessments": [
             {"force": "เศรษฐกิจและการเงิน", "impact": 1.0, "uncertainty": 0.5}
         ],
+        "cluster_id": str(uuid.uuid4()),
         "scenario_id": str(uuid.uuid4()),
         "created_at": datetime(2026, 8, 22, 8, 0, tzinfo=UTC).isoformat(),
     }

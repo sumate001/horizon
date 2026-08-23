@@ -72,6 +72,7 @@ def valid_signal(**overrides) -> dict:
         "force_assessments": [
             {"force": "เศรษฐกิจและการเงิน", "impact": 0.66, "uncertainty": 0.5}
         ],
+        "cluster_id": None,
         "scenario_id": None,
         "created_at": "2026-08-22T08:00:00+00:00",
     }
