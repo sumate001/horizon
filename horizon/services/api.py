@@ -678,7 +678,13 @@ async def event_counts(session: SessionDep):
         )
     ).all()
     counts = {row.triage_verdict: row.n for row in rows}
-    counts["ALL"] = sum(counts.values())
+    scored = sum(counts.values())
+    # ALL is the unfiltered total, not the sum of the verdicts, because the ALL
+    # tab lists every event — including ones ingested before editorial scoring
+    # existed. Summing verdicts here would put a badge of 88 on a tab that then
+    # shows 644 rows.
+    counts["ALL"] = (await session.execute(select(func.count(Event.id)))).scalar_one()
+    counts["UNSCORED"] = counts["ALL"] - scored
     return counts
 
 
