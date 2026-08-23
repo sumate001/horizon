@@ -1,17 +1,16 @@
 import { NavLink, Navigate, Route, Routes } from "react-router-dom";
 
 import { api, usePoll } from "./api";
-import Overview from "./pages/Overview";
-import Scenarios from "./pages/Scenarios";
+import Ops from "./pages/Ops";
 import Sources from "./pages/Sources";
-import Trends from "./pages/Trends";
-import WeakSignals from "./pages/WeakSignals";
+import Triage from "./pages/Triage";
 
+// Horizon is the engine; analysts work in OSINT//DESK. This nav is for whoever
+// keeps the engine running, which is why there is nothing here about trends,
+// weak signals or scenarios — those surface to humans on the other side.
 const NAV = [
-  { to: "/overview", label: "ภาพรวม" },
-  { to: "/trends", label: "แนวโน้ม" },
-  { to: "/weak-signals", label: "สัญญาณอ่อน" },
-  { to: "/scenarios", label: "ฉากทัศน์" },
+  { to: "/ops", label: "สถานะระบบ" },
+  { to: "/triage", label: "ปรับสูตรคะแนน" },
   { to: "/sources", label: "แหล่งข่าว" },
 ];
 
@@ -23,7 +22,7 @@ function Header() {
       <div className="mx-auto flex max-w-7xl items-center gap-6 px-5 py-3">
         <div className="flex items-baseline gap-2">
           <span className="text-lg font-bold tracking-tight text-slate-100">Horizon</span>
-          <span className="text-[11px] text-slate-500">ระบบเฝ้าระวังข่าวกรอง</span>
+          <span className="text-[11px] text-slate-500">engine · หน้าจอผู้ดูแลระบบ</span>
         </div>
         <nav className="flex gap-1">
           {NAV.map((item) => (
@@ -80,12 +79,12 @@ export default function App() {
       <Header />
       <main className="mx-auto max-w-7xl px-5 py-6">
         <Routes>
-          <Route path="/" element={<Navigate to="/overview" replace />} />
-          <Route path="/overview" element={<Overview />} />
-          <Route path="/trends" element={<Trends />} />
-          <Route path="/weak-signals" element={<WeakSignals />} />
-          <Route path="/scenarios" element={<Scenarios />} />
+          <Route path="/" element={<Navigate to="/ops" replace />} />
+          <Route path="/ops" element={<Ops />} />
+          <Route path="/triage" element={<Triage />} />
           <Route path="/sources" element={<Sources />} />
+          {/* Old analyst routes — anyone with a bookmark lands on ops. */}
+          <Route path="*" element={<Navigate to="/ops" replace />} />
         </Routes>
       </main>
     </div>

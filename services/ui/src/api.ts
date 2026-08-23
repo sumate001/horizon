@@ -37,47 +37,27 @@ export type Source = {
   created_at: string;
 };
 
-export type TrendRow = {
-  cluster_id: string;
-  label: string | null;
-  event_count: number;
-  status: string;
-  first_seen: string | null;
-  last_seen: string | null;
-  trend_score: number | null;
-  z_frequency: number | null;
-  z_velocity: number | null;
-  z_acceleration: number | null;
-  provisional: boolean;
-  history: number[];
-  categories: string[];
+export type TriageSettings = {
+  sensitivity_coefficient: number;
+  priority_total: number;
+  priority_urgency: number;
+  fasttrack_impact: number;
+  fasttrack_reliability: number;
+  investigate_total: number;
 };
 
-export type WeakSignalRow = {
-  id: string;
-  event_id: string | null;
-  cluster_id: string | null;
-  title: string | null;
-  novelty_score: number;
-  isolation_score: number;
-  burst_score: number;
-  combined_score: number;
-  status: string;
-  created_at: string;
-  categories: string[];
+export type TriageDistribution = {
+  verdicts: Record<string, number>;
+  mean_total: number;
+  at_ceiling: number;
+  at_ceiling_pct: number;
 };
 
-export type ScenarioRow = {
-  id: string;
-  cluster_id: string;
-  label: string | null;
-  best_case: string | null;
-  worst_case: string | null;
-  likely_case: string | null;
-  indicators: { description: string; watch_type: string }[];
-  source_event_ids: string[];
-  model: string | null;
-  created_at: string;
+export type TriageSimulation = {
+  events: number;
+  settings?: { current: TriageSettings; proposed: TriageSettings };
+  current: TriageDistribution | Record<string, never>;
+  proposed: TriageDistribution | Record<string, never>;
 };
 
 class ApiError extends Error {
@@ -119,9 +99,14 @@ export const api = {
   updateSource: (id: string, body: Partial<Source>) =>
     request<Source>(`/sources/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteSource: (id: string) => request<void>(`/sources/${id}`, { method: "DELETE" }),
-  trends: () => request<TrendRow[]>("/trends"),
-  weakSignals: () => request<WeakSignalRow[]>("/weak-signals"),
-  scenarios: () => request<ScenarioRow[]>("/scenarios"),
+  simulateTriage: (k?: number) =>
+    request<TriageSimulation>(
+      `/triage/simulate${k === undefined ? "" : `?sensitivity_coefficient=${k}`}`,
+    ),
+  rescoreTriage: () =>
+    request<{ events: number; changed: number; settings: TriageSettings }>("/triage/rescore", {
+      method: "POST",
+    }),
 };
 
 type Poll<T> = { data: T | null; error: string | null; loading: boolean; reload: () => void };
