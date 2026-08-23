@@ -73,6 +73,25 @@ class Settings(BaseSettings):
 
     gate_min_credibility: float = 0.2
 
+    # ── Editorial triage (tunable) ───────────────────────────────────────────
+    # How hard sensitivity lifts the score: total = mean(6 dims) × (1 + s × k).
+    #
+    # OSINT//DESK used k = 0.1, which makes the multiplier run 1.0–2.0 and
+    # saturates the scale: measured on the first 20 real events, half hit the
+    # cap of 10 and 65% came out PRIORITY, which is the same as having no
+    # verdict at all. At 0.03 the multiplier tops out at 1.3 and sensitivity
+    # still ranks a story up without swamping the other five dimensions.
+    #
+    # Tune against real data with GET /api/v1/triage/simulate, then apply with
+    # POST /api/v1/triage/rescore — no LLM calls needed, the dimension scores
+    # are already stored.
+    triage_sensitivity_coefficient: float = 0.03
+    triage_priority_total: float = 7.5
+    triage_priority_urgency: float = 9.0
+    triage_fasttrack_impact: float = 8.0
+    triage_fasttrack_reliability: float = 7.0
+    triage_investigate_total: float = 5.5
+
     # ── Reasoner ─────────────────────────────────────────────────────────────
     #: Rivals the triggered cluster is compared against. Cost is quadratic:
     #: n=1+ahp_top_clusters alternatives means n(n−1)/2 LLM calls per force.

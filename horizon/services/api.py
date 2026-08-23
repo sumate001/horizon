@@ -32,6 +32,8 @@ from ..models import (
     Verdict,
     WeakSignal,
 )
+from ..pipeline.triage import TriageSettings
+from ..pipeline.triage import rescore as rescore_triage
 from ..queue import ArticleQueue
 
 log = logging.getLogger("horizon.api")
@@ -217,6 +219,112 @@ async def stats(session: SessionDep) -> Stats:
         )
         or 0,
     )
+
+
+# ── Triage tuning ────────────────────────────────────────────────────────────
+
+
+def _stored_dimensions(event: Event) -> dict[str, float]:
+    return {
+        "relevance": event.score_relevance or 0.0,
+        "urgency": event.score_urgency or 0.0,
+        "impact": event.score_impact or 0.0,
+        "novelty": event.score_novelty or 0.0,
+        "reliability": event.score_reliability or 0.0,
+        "sensitivity": event.score_sensitivity or 0.0,
+        "actionability": event.score_actionability or 0.0,
+    }
+
+
+@app.get("/api/v1/triage/simulate")
+async def simulate_triage(
+    session: SessionDep,
+    sensitivity_coefficient: float | None = None,
+    priority_total: float | None = None,
+    investigate_total: float | None = None,
+):
+    """What the verdict split would look like under different settings.
+
+    The six dimensions are already stored, so trying a coefficient costs a
+    division rather than re-reading every article. Tune here, then apply with
+    /triage/rescore.
+    """
+    current = TriageSettings.from_env()
+    proposed = TriageSettings(
+        sensitivity_coefficient=(
+            current.sensitivity_coefficient
+            if sensitivity_coefficient is None
+            else sensitivity_coefficient
+        ),
+        priority_total=current.priority_total if priority_total is None else priority_total,
+        priority_urgency=current.priority_urgency,
+        fasttrack_impact=current.fasttrack_impact,
+        fasttrack_reliability=current.fasttrack_reliability,
+        investigate_total=(
+            current.investigate_total if investigate_total is None else investigate_total
+        ),
+    )
+
+    events = list(
+        (
+            await session.execute(select(Event).where(Event.triage_total.isnot(None)))
+        ).scalars()
+    )
+    if not events:
+        return {"events": 0, "current": {}, "proposed": {}}
+
+    def distribution(settings: TriageSettings) -> dict:
+        verdicts: dict[str, int] = {}
+        totals = []
+        capped = 0
+        for event in events:
+            total, verdict = rescore_triage(_stored_dimensions(event), settings)
+            verdicts[verdict] = verdicts.get(verdict, 0) + 1
+            totals.append(total)
+            if total >= 10.0:
+                capped += 1
+        return {
+            "verdicts": verdicts,
+            "mean_total": round(sum(totals) / len(totals), 2),
+            # The number that exposed the problem: a formula that pins many
+            # stories to the ceiling has stopped ranking them.
+            "at_ceiling": capped,
+            "at_ceiling_pct": round(100 * capped / len(events)),
+        }
+
+    return {
+        "events": len(events),
+        "settings": {
+            "current": current.__dict__,
+            "proposed": proposed.__dict__,
+        },
+        "current": distribution(current),
+        "proposed": distribution(proposed),
+    }
+
+
+@app.post("/api/v1/triage/rescore", dependencies=[WriteAuth])
+async def rescore_triage_endpoint(session: SessionDep):
+    """Re-apply the configured formula to every scored event.
+
+    Needed because the verdict is computed at write time. No LLM calls: the
+    dimensions the model produced are already on the row.
+    """
+    events = list(
+        (
+            await session.execute(select(Event).where(Event.triage_total.isnot(None)))
+        ).scalars()
+    )
+    settings = TriageSettings.from_env()
+    changed = 0
+    for event in events:
+        total, verdict = rescore_triage(_stored_dimensions(event), settings)
+        if event.triage_total != total or event.triage_verdict != verdict:
+            event.triage_total, event.triage_verdict = total, verdict
+            changed += 1
+
+    log.info("triage rescored", extra={"events": len(events), "changed": changed})
+    return {"events": len(events), "changed": changed, "settings": settings.__dict__}
 
 
 # ── Verdict feedback from OSINT//DESK (phase 4) ──────────────────────────────
