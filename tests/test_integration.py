@@ -101,10 +101,14 @@ def test_a_rejected_payload_is_not_retried(code):
 # ── the HTTP call ────────────────────────────────────────────────────────────
 
 
-async def test_with_no_base_url_configured_delivery_is_disabled_not_failed():
+async def test_with_no_base_url_configured_delivery_is_disabled_not_failed(monkeypatch):
+    """Clears the variable explicitly rather than assuming the ambient .env is
+    empty — it stopped being empty the moment the integration was wired up."""
+    monkeypatch.setenv("OSINT_DESK_BASE_URL", "")
     get_settings.cache_clear()
     outcome = await post_signal(payload())
     assert outcome == DeliveryOutcome(status="disabled")
+    get_settings.cache_clear()
 
 
 @respx.mock

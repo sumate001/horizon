@@ -108,6 +108,9 @@ class Event(Base):
         Index("ix_events_created_at", "created_at"),
         Index("ix_events_event_time", "event_time"),
         Index("ix_events_incomplete", "incomplete"),
+        # The DESK feed page filters by verdict and orders by score.
+        Index("ix_events_triage_verdict", "triage_verdict"),
+        Index("ix_events_triage_total", "triage_total"),
     )
 
     id: Mapped[uuid.UUID] = _pk()
@@ -123,6 +126,17 @@ class Event(Base):
     )
     summary: Mapped[str | None] = mapped_column(Text)
     extraction_confidence: Mapped[float | None] = mapped_column(Float)
+    # Editorial triage, moved here from OSINT//DESK when Horizon took over
+    # everything on the way in. 0–10 each; see pipeline/triage.py.
+    score_relevance: Mapped[float | None] = mapped_column(Float)
+    score_urgency: Mapped[float | None] = mapped_column(Float)
+    score_impact: Mapped[float | None] = mapped_column(Float)
+    score_novelty: Mapped[float | None] = mapped_column(Float)
+    score_reliability: Mapped[float | None] = mapped_column(Float)
+    score_sensitivity: Mapped[float | None] = mapped_column(Float)
+    score_actionability: Mapped[float | None] = mapped_column(Float)
+    triage_total: Mapped[float | None] = mapped_column(Float)
+    triage_verdict: Mapped[str | None] = mapped_column(String(20))
     incomplete: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     source_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     credibility_weight: Mapped[float] = mapped_column(Float, nullable=False, default=0.5)

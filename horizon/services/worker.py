@@ -26,6 +26,7 @@ from ..models import Event, RawArticle, Source
 from ..pipeline.dedup import Candidate, Deduplicator, MinHashIndex, build_minhash
 from ..pipeline.extract import Extraction, ExtractionError, extract_event
 from ..pipeline.gate import build_gate
+from ..pipeline.triage import score as score_triage
 from ..pipeline.vectors import get_vector_store
 from ..queue import ArticleQueue
 
@@ -188,6 +189,10 @@ class ArticleWorker:
         minhash,
     ) -> uuid.UUID:
         event_id = uuid.uuid4()
+        # Editorial scoring: the model judges the article, the source registry
+        # supplies reliability. Both come from data we already have, so this
+        # costs no extra LLM call.
+        triage = score_triage(extraction.triage_scores, credibility_weight=credibility)
         async with session_scope() as session:
             session.add(
                 Event(
@@ -200,6 +205,7 @@ class ArticleWorker:
                     categories=extraction.categories,
                     summary=extraction.summary,
                     extraction_confidence=extraction.confidence,
+                    **triage.as_columns(),
                     incomplete=extraction.incomplete,
                     source_count=1,
                     credibility_weight=credibility,

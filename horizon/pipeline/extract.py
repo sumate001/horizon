@@ -32,6 +32,9 @@ class Extraction:
     categories: list[str] = field(default_factory=list)
     summary: str = ""
     confidence: float = 0.0
+    #: Raw editorial scores as the model returned them. Turned into a
+    #: TriageResult by the worker, which supplies the source's credibility.
+    triage_scores: dict = field(default_factory=dict)
 
     @property
     def incomplete(self) -> bool:
@@ -108,6 +111,19 @@ def normalize(payload: dict) -> Extraction:
         categories=_clean_categories(payload.get("categories")),
         summary=summary[:SUMMARY_LIMIT],
         confidence=_clean_confidence(payload.get("confidence")),
+        # Passed through unvalidated; triage.score() clamps and fills the gaps,
+        # so a model that omits a dimension costs that dimension, not the article.
+        triage_scores={
+            key: payload.get(key)
+            for key in (
+                "relevance",
+                "urgency",
+                "impact",
+                "novelty",
+                "sensitivity",
+                "actionability",
+            )
+        },
     )
 
 
