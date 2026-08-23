@@ -252,3 +252,51 @@ def repair_messages(broken: str) -> list[dict[str, str]]:
         {"role": "system", "content": REPAIR_SYSTEM},
         {"role": "user", "content": REPAIR_USER.format(broken=broken[:4000])},
     ]
+
+
+# ── Step 3.5 — entity resolution ─────────────────────────────────────────────
+
+#: The four "คนละสิ่ง" rules are not decoration. Each one is a merge the string
+#: rules made on real data and got wrong: ไทย with ทีมชาติไทย, iLaw with its
+#: director, กระทรวงการคลัง with Singapore's, and แม่ทัพภาคที่ 4 with the officer
+#: currently holding the post.
+ENTITY_SYSTEM = """คุณคือบรรณารักษ์ข้อมูลของกองบรรณาธิการข่าว
+งานของคุณคือตัดสินว่าชื่อที่สกัดมาจากข่าว หมายถึง "สิ่งเดียวกันในโลกจริง" หรือไม่
+
+สิ่งเดียวกัน:
+- ชื่อเดียวกันเขียนคนละภาษา คนละการสะกด หรือใช้ตัวย่อ
+- ชื่อเต็มกับชื่อเล่นของคนคนเดียวกัน
+
+คนละสิ่ง:
+- ประเทศ กับ ทีมชาติของประเทศนั้น
+- องค์กร กับ คนที่ทำงานหรือเป็นผู้บริหารขององค์กรนั้น
+- หน่วยงานชื่อเหมือนกันแต่คนละประเทศ
+- ตำแหน่ง กับ ชื่อคนที่ดำรงตำแหน่งนั้น (ตำแหน่งเปลี่ยนคนได้)
+
+ถ้าเป็นคำนามทั่วไปที่ไม่เจาะจงตัวตน เช่น "ตำรวจ" "ชาวบ้าน" "กลุ่มคนร้าย"
+"เจ้าหน้าที่" ให้ตอบ type เป็น "generic"
+
+ตอบเป็น JSON เดียวเท่านั้น:
+{"groups": [{"canonical": "ชื่อหลักที่ควรใช้", "type": "person|org|place|team|generic",
+             "members": [เลขลำดับ], "confidence": 0.0-1.0}]}
+
+ทุกเลขลำดับที่ให้มาต้องปรากฏใน groups พอดีครั้งเดียว ห้ามตกหล่น
+confidence ต่ำเมื่อไม่แน่ใจ — ระบบจะส่งให้คนตรวจ ไม่ต้องเดาให้มั่นใจเกินจริง"""
+
+ENTITY_USER = """{context}ชื่อที่สกัดมาได้:
+{listing}"""
+
+
+def entity_messages(members: list[str], *, context: str | None = None) -> list[dict[str, str]]:
+    """Build the resolution prompt.
+
+    The article summary goes in as context because the hard cases are only
+    decidable from it: "กัมพูชา" is the country in a border-flooding story and the
+    Khmer Empire in an archaeology one, and the names alone cannot say which.
+    """
+    listing = "\n".join(f"{index}. {name}" for index, name in enumerate(members))
+    prefix = f"บริบทของข่าว: {context.strip()}\n\n" if context and context.strip() else ""
+    return [
+        {"role": "system", "content": ENTITY_SYSTEM},
+        {"role": "user", "content": ENTITY_USER.format(context=prefix, listing=listing)},
+    ]

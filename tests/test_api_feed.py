@@ -26,7 +26,7 @@ async def session():
     engine = create_async_engine(get_settings().postgres_url, poolclass=None)
     try:
         connection = await engine.connect()
-    except Exception as exc:  # pragma: no cover - depends on the environment
+    except Exception as exc:  # noqa: BLE001 — any connection failure means "no DB, skip"
         await engine.dispose()
         pytest.skip(f"no database: {exc}")
 

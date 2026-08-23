@@ -1,6 +1,7 @@
 import { NavLink, Navigate, Route, Routes } from "react-router-dom";
 
 import { api, usePoll } from "./api";
+import Entities from "./pages/Entities";
 import Ops from "./pages/Ops";
 import Sources from "./pages/Sources";
 import Triage from "./pages/Triage";
@@ -10,6 +11,7 @@ import Triage from "./pages/Triage";
 // weak signals or scenarios — those surface to humans on the other side.
 const NAV = [
   { to: "/ops", label: "สถานะระบบ" },
+  { to: "/entities", label: "ทะเบียนตัวตน" },
   { to: "/triage", label: "ปรับสูตรคะแนน" },
   { to: "/sources", label: "แหล่งข่าว" },
 ];
@@ -81,6 +83,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Navigate to="/ops" replace />} />
           <Route path="/ops" element={<Ops />} />
+          <Route path="/entities" element={<Entities />} />
           <Route path="/triage" element={<Triage />} />
           <Route path="/sources" element={<Sources />} />
           {/* Old analyst routes — anyone with a bookmark lands on ops. */}

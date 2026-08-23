@@ -23,7 +23,9 @@ from sqlalchemy import (
     String,
     Text,
     func,
+    text,
 )
+from sqlalchemy.dialects.postgresql import ARRAY as PG_ARRAY
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -41,6 +43,10 @@ PESTEL_DIMENSIONS = ("P", "E", "S", "T", "E2", "L")
 SIGNAL_TYPES = ("weak_signal", "trend_breakout")
 DISPATCH_STATUSES = ("pending", "delivered", "failed", "disabled")
 VERDICTS = ("true_signal", "false_signal", "inconclusive")
+ENTITY_TYPES = ("person", "org", "place", "team", "generic", "unknown")
+#: auto — the pipeline decided and was confident. needs_review — it was not, and
+#: nobody has looked yet. confirmed/rejected — a human has.
+ENTITY_REVIEW_STATUSES = ("auto", "needs_review", "confirmed", "rejected")
 
 
 def _check(column: str, allowed: tuple[str, ...], name: str) -> CheckConstraint:
@@ -330,5 +336,80 @@ class Verdict(Base):
     verdict: Mapped[str] = mapped_column(String(32), nullable=False)
     analyst_note: Mapped[str | None] = mapped_column(Text)
     received_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class Entity(Base):
+    """One thing in the world, however many ways the news spells it.
+
+    `qid` is reserved for a Wikidata identifier and is deliberately nullable:
+    measured against this corpus, Wikidata covers 75% of the names that repeat
+    but only 33% of the long tail, and local figures — a village headman, a
+    patrol officer — will never be in it. An entity is real whether or not an
+    encyclopaedia agrees.
+    """
+
+    __tablename__ = "entities"
+    __table_args__ = (
+        _check("entity_type", ENTITY_TYPES, "ck_entities_type"),
+        _check("review_status", ENTITY_REVIEW_STATUSES, "ck_entities_review_status"),
+        Index("ix_entities_review_status", "review_status"),
+        Index("ix_entities_type", "entity_type"),
+        Index("ix_entities_qid", "qid", unique=True, postgresql_where=text("qid IS NOT NULL")),
+        Index("ix_entities_aliases", "aliases", postgresql_using="gin"),
+    )
+
+    id: Mapped[uuid.UUID] = _pk()
+    canonical_name: Mapped[str] = mapped_column(Text, nullable=False)
+    entity_type: Mapped[str] = mapped_column(String(16), nullable=False, default="unknown")
+    #: Every normalised surface form seen for this entity. The lookup key on
+    #: ingest, which is why it carries a GIN index. Typed with the PostgreSQL
+    #: ARRAY rather than the generic one so `.overlap()` (the `&&` operator) is
+    #: available — the generic type has no such comparator and the lookup would
+    #: fail at runtime, quietly creating a new entity for every mention.
+    aliases: Mapped[list[str]] = mapped_column(PG_ARRAY(Text), nullable=False, default=list)
+    qid: Mapped[str | None] = mapped_column(String(32))
+    confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    review_status: Mapped[str] = mapped_column(String(16), nullable=False, default="auto")
+    decided_by: Mapped[str] = mapped_column(String(16), nullable=False, default="rules")
+    #: Why this was queued, in Thai, shown to the reviewer. NULL means it was
+    #: not queued — the queue exists to be acted on, not to be a list of scores.
+    risk: Mapped[str | None] = mapped_column(Text)
+    #: Kept for the review queue: what the analyst is being asked to judge.
+    mention_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    reviewed_by: Mapped[str | None] = mapped_column(Text)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    first_seen: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    last_seen: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class EventEntity(Base):
+    """Which entities an event is about, and how each was written there.
+
+    `surface_form` is kept rather than normalised away: when a merge turns out to
+    be wrong, this is the only record of what the article actually said.
+    """
+
+    __tablename__ = "event_entities"
+    __table_args__ = (
+        Index("ix_event_entities_event", "event_id"),
+        Index("ix_event_entities_entity", "entity_id"),
+        Index("ix_event_entities_unique", "event_id", "entity_id", "surface_form", unique=True),
+    )
+
+    id: Mapped[uuid.UUID] = _pk()
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("events.id", ondelete="CASCADE"), nullable=False
+    )
+    entity_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("entities.id", ondelete="CASCADE"), nullable=False
+    )
+    surface_form: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

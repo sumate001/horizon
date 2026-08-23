@@ -24,6 +24,8 @@ from ..logging import setup_logging
 from ..metrics import articles_processed, extraction_latency, serve_metrics
 from ..models import Event, RawArticle, Source
 from ..pipeline.dedup import Candidate, Deduplicator, MinHashIndex, build_minhash
+from ..pipeline.entities import persist as persist_entities
+from ..pipeline.entities import resolve as resolve_entities
 from ..pipeline.extract import Extraction, ExtractionError, extract_event
 from ..pipeline.gate import build_gate
 from ..pipeline.triage import score as score_triage
@@ -167,6 +169,7 @@ class ArticleWorker:
             summary=extraction.summary,
         )
         self.dedup.register(event_id, minhash)
+        await self._resolve_entities(event_id, extraction)
         log.info(
             "event created",
             extra={
@@ -216,6 +219,35 @@ class ArticleWorker:
                 )
             )
         return event_id
+
+    async def _resolve_entities(self, event_id: uuid.UUID, extraction: Extraction) -> None:
+        """Give the extracted names an identity. Never fails the article.
+
+        The event is already written and indexed by the time this runs, so a
+        resolution failure costs entity links on one story rather than the story
+        itself. Ingestion has to keep moving whether or not the model answers.
+        """
+        settings = get_settings()
+        if not settings.entity_resolution_enabled or not extraction.actors:
+            return
+        try:
+            resolutions = await resolve_entities(
+                extraction.actors,
+                context=extraction.summary,
+                model=settings.entity_model,
+            )
+            async with session_scope() as session:
+                counts = await persist_entities(session, event_id, resolutions)
+        except Exception as exc:  # noqa: BLE001 — one event must never kill the loop
+            log.warning(
+                "entity resolution failed",
+                extra={"event_id": str(event_id), "error": str(exc)},
+            )
+            return
+        log.info(
+            "entities resolved",
+            extra={"event_id": str(event_id), "actors": len(extraction.actors), **counts},
+        )
 
     async def _merge_duplicate(self, event_id: uuid.UUID | None, credibility: float) -> None:
         if event_id is None:

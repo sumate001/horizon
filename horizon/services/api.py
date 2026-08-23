@@ -24,7 +24,9 @@ from ..logging import setup_logging
 from ..models import (
     Cluster,
     Dispatch,
+    Entity,
     Event,
+    EventEntity,
     RawArticle,
     Scenario,
     Score,
@@ -728,3 +730,131 @@ if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run(app, host="0.0.0.0", port=8300)
+
+
+# ── Entity review queue ──────────────────────────────────────────────────────
+
+
+def _entity_json(entity: Entity, surfaces: list[str]) -> dict:
+    return {
+        "id": str(entity.id),
+        "canonical_name": entity.canonical_name,
+        "entity_type": entity.entity_type,
+        "aliases": entity.aliases,
+        "qid": entity.qid,
+        "confidence": entity.confidence,
+        "review_status": entity.review_status,
+        "risk": entity.risk,
+        "decided_by": entity.decided_by,
+        "mention_count": entity.mention_count,
+        # What the articles actually said. When a merge is wrong this is the
+        # only way an analyst can see it without reading the pipeline.
+        "surface_forms": surfaces,
+        "first_seen": entity.first_seen.isoformat() if entity.first_seen else None,
+        "last_seen": entity.last_seen.isoformat() if entity.last_seen else None,
+    }
+
+
+async def _surfaces(session: AsyncSession, ids: list[uuid.UUID]) -> dict[uuid.UUID, list[str]]:
+    if not ids:
+        return {}
+    rows = (
+        await session.execute(
+            select(EventEntity.entity_id, EventEntity.surface_form)
+            .where(EventEntity.entity_id.in_(ids))
+            .distinct()
+        )
+    ).all()
+    out: dict[uuid.UUID, list[str]] = {}
+    for entity_id, surface in rows:
+        out.setdefault(entity_id, []).append(surface)
+    return {k: sorted(v) for k, v in out.items()}
+
+
+@app.get("/api/v1/entities")
+async def list_entities(
+    session: SessionDep,
+    status: str | None = None,
+    entity_type: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
+):
+    """The entity store, filtered. `status=needs_review` backs the review queue."""
+    limit = min(limit, 500)
+    query = select(Entity)
+    if status:
+        query = query.where(Entity.review_status == status)
+    if entity_type:
+        query = query.where(Entity.entity_type == entity_type)
+    entities = list(
+        (
+            await session.execute(
+                query.order_by(Entity.mention_count.desc(), Entity.last_seen.desc())
+                .limit(limit)
+                .offset(offset)
+            )
+        ).scalars()
+    )
+    surfaces = await _surfaces(session, [entity.id for entity in entities])
+    return [_entity_json(entity, surfaces.get(entity.id, [])) for entity in entities]
+
+
+@app.get("/api/v1/entities/counts")
+async def entity_counts(session: SessionDep):
+    rows = (
+        await session.execute(
+            select(Entity.review_status, func.count().label("n")).group_by(Entity.review_status)
+        )
+    ).all()
+    counts = {row.review_status: row.n for row in rows}
+    counts["ALL"] = sum(counts.values())
+    by_type = (
+        await session.execute(
+            select(Entity.entity_type, func.count().label("n")).group_by(Entity.entity_type)
+        )
+    ).all()
+    return {"review": counts, "types": {row.entity_type: row.n for row in by_type}}
+
+
+class EntityReview(BaseModel):
+    """An analyst's verdict on a proposed entity."""
+
+    model_config = {"extra": "forbid"}
+
+    decision: Literal["confirmed", "rejected"]
+    canonical_name: str | None = None
+    entity_type: Literal["person", "org", "place", "team", "generic", "unknown"] | None = None
+    qid: str | None = None
+    reviewed_by: str | None = None
+
+
+@app.post("/api/v1/entities/{entity_id}/review", dependencies=[WriteAuth])
+async def review_entity(entity_id: uuid.UUID, payload: EntityReview, session: SessionDep):
+    """Confirm or reject a proposed entity.
+
+    A rejection is kept rather than deleted: `_find_existing` skips rejected
+    rows, so the same bad merge does not come straight back on the next article
+    that mentions the name.
+    """
+    entity = await session.get(Entity, entity_id)
+    if entity is None:
+        raise HTTPException(status_code=404, detail="entity not found")
+
+    entity.review_status = payload.decision
+    entity.reviewed_by = payload.reviewed_by
+    entity.reviewed_at = datetime.now(UTC)
+    if payload.canonical_name:
+        entity.canonical_name = payload.canonical_name
+    if payload.entity_type:
+        entity.entity_type = payload.entity_type
+    if payload.qid:
+        entity.qid = payload.qid
+    if payload.decision == "confirmed":
+        # A human looked: downstream should stop treating this as provisional.
+        entity.confidence = 1.0
+
+    log.info(
+        "entity reviewed",
+        extra={"entity_id": str(entity_id), "decision": payload.decision},
+    )
+    return _entity_json(entity, [])

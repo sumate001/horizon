@@ -60,6 +60,29 @@ export type TriageSimulation = {
   proposed: TriageDistribution | Record<string, never>;
 };
 
+export type EntityRow = {
+  id: string;
+  canonical_name: string;
+  entity_type: "person" | "org" | "place" | "team" | "generic" | "unknown";
+  aliases: string[];
+  qid: string | null;
+  confidence: number;
+  review_status: "auto" | "needs_review" | "confirmed" | "rejected";
+  /** Why it was queued, in Thai. Null when nobody needs to look. */
+  risk: string | null;
+  decided_by: string;
+  mention_count: number;
+  /** What the articles literally said — the only way to see a bad merge. */
+  surface_forms: string[];
+  first_seen: string | null;
+  last_seen: string | null;
+};
+
+export type EntityCounts = {
+  review: Record<string, number>;
+  types: Record<string, number>;
+};
+
 class ApiError extends Error {
   constructor(
     message: string,
@@ -103,6 +126,11 @@ export const api = {
     request<TriageSimulation>(
       `/triage/simulate${k === undefined ? "" : `?sensitivity_coefficient=${k}`}`,
     ),
+  entities: (status?: string, limit = 100) =>
+    request<EntityRow[]>(`/entities?limit=${limit}${status ? `&status=${status}` : ""}`),
+  entityCounts: () => request<EntityCounts>("/entities/counts"),
+  reviewEntity: (id: string, body: { decision: "confirmed" | "rejected"; canonical_name?: string }) =>
+    request<EntityRow>(`/entities/${id}/review`, { method: "POST", body: JSON.stringify(body) }),
   rescoreTriage: () =>
     request<{ events: number; changed: number; settings: TriageSettings }>("/triage/rescore", {
       method: "POST",

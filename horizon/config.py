@@ -32,6 +32,15 @@ class Settings(BaseSettings):
     extract_model: str = "gemma4:12b"
     embed_model: str = "bge-m3"
     llm_timeout: float = 60.0
+    entity_model: str = "gemma4:12b"
+    #: Off by default. It adds one LLM call per event, and a half-populated
+    #: entity store is worse than none: downstream code would read "never seen
+    #: before" when the truth is "not resolved yet".
+    entity_resolution_enabled: bool = False
+    #: Below this a resolution is still written, but flagged for a human.
+    #: Merging two people wrongly writes false history into a case file, so this
+    #: is set to be cautious rather than to keep the queue quiet.
+    entity_review_threshold: float = 0.75
 
     # ── Thresholds ───────────────────────────────────────────────────────────
     dedup_minhash_t: float = 0.85
