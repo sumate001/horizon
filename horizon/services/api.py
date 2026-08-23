@@ -496,34 +496,118 @@ async def list_scenarios(session: SessionDep, limit: int = 50):
     return rows
 
 
+def _event_json(event: Event, source_name: str | None = None, url: str | None = None) -> dict:
+    """One event as OSINT//DESK's feed page expects it.
+
+    Horizon is the only thing ingesting now, so this shape is a public interface
+    between the two systems, not an internal convenience.
+    """
+    return {
+        "id": str(event.id),
+        "summary": event.summary,
+        "actors": event.actors,
+        "action": event.action,
+        "location": event.location,
+        "event_time": event.event_time,
+        "categories": event.categories,
+        "source_count": event.source_count,
+        "source_name": source_name,
+        "url": url,
+        "credibility_weight": event.credibility_weight,
+        "incomplete": event.incomplete,
+        "updates": len(event.event_updates or []),
+        "cluster_id": str(event.cluster_id) if event.cluster_id else None,
+        "created_at": event.created_at,
+        "triage": {
+            "verdict": event.triage_verdict,
+            "total": event.triage_total,
+            "relevance": event.score_relevance,
+            "urgency": event.score_urgency,
+            "impact": event.score_impact,
+            "novelty": event.score_novelty,
+            "reliability": event.score_reliability,
+            "sensitivity": event.score_sensitivity,
+            "actionability": event.score_actionability,
+        },
+    }
+
+
 @app.get("/api/v1/events")
-async def list_events(session: SessionDep, limit: int = 50, offset: int = 0):
-    """Recent events — the raw feed behind the dashboard, useful for smoke tests."""
+async def list_events(
+    session: SessionDep,
+    limit: int = 50,
+    offset: int = 0,
+    verdict: str | None = None,
+    order: Literal["recent", "score"] = "recent",
+):
+    """The inbound stream, with editorial scores. Backs the DESK feed page."""
     limit = min(limit, 200)
-    events = list(
-        (
-            await session.execute(
-                select(Event).order_by(Event.created_at.desc()).limit(limit).offset(offset)
-            )
-        ).scalars()
+    query = (
+        select(Event, Source.name, RawArticle.url)
+        .join(RawArticle, RawArticle.id == Event.raw_article_id, isouter=True)
+        .join(Source, Source.id == RawArticle.source_id, isouter=True)
     )
-    return [
-        {
-            "id": str(event.id),
-            "summary": event.summary,
-            "actors": event.actors,
-            "action": event.action,
-            "location": event.location,
-            "event_time": event.event_time,
-            "categories": event.categories,
-            "source_count": event.source_count,
-            "credibility_weight": event.credibility_weight,
-            "incomplete": event.incomplete,
-            "updates": len(event.event_updates or []),
-            "created_at": event.created_at,
-        }
-        for event in events
-    ]
+    if verdict:
+        query = query.where(Event.triage_verdict == verdict)
+    query = query.order_by(
+        Event.triage_total.desc().nullslast()
+        if order == "score"
+        else Event.created_at.desc()
+    )
+
+    rows = (await session.execute(query.limit(limit).offset(offset))).all()
+    return [_event_json(row[0], row[1], row[2]) for row in rows]
+
+
+@app.get("/api/v1/events/counts")
+async def event_counts(session: SessionDep):
+    """Verdict tallies for the filter tabs, so the UI need not fetch to count."""
+    rows = (
+        await session.execute(
+            select(Event.triage_verdict, func.count().label("n"))
+            .where(Event.triage_verdict.isnot(None))
+            .group_by(Event.triage_verdict)
+        )
+    ).all()
+    counts = {row.triage_verdict: row.n for row in rows}
+    counts["ALL"] = sum(counts.values())
+    return counts
+
+
+@app.get("/api/v1/clusters/{cluster_id}/timeline")
+async def cluster_timeline(cluster_id: uuid.UUID, session: SessionDep, limit: int = 200):
+    """Every event in a cluster, oldest first.
+
+    This is what makes a handover worth accepting: an analyst opening a case
+    should inherit the whole thread Horizon has been assembling for days, not
+    just the few most credible pieces of it.
+    """
+    cluster = await session.get(Cluster, cluster_id)
+    if cluster is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "cluster not found")
+
+    rows = (
+        await session.execute(
+            select(Event, Source.name, RawArticle.url)
+            .join(RawArticle, RawArticle.id == Event.raw_article_id, isouter=True)
+            .join(Source, Source.id == RawArticle.source_id, isouter=True)
+            .where(Event.cluster_id == cluster_id)
+            # Ordered by when it happened, falling back to when we saw it —
+            # a timeline is only useful in the order things occurred.
+            .order_by(func.coalesce(Event.event_time, Event.created_at))
+            .limit(min(limit, 500))
+        )
+    ).all()
+
+    return {
+        "cluster_id": str(cluster.id),
+        "label": cluster.label,
+        "event_count": cluster.event_count,
+        "first_seen": cluster.first_seen,
+        "last_seen": cluster.last_seen,
+        "status": cluster.status,
+        "timeline": [_event_json(row[0], row[1], row[2]) for row in rows],
+    }
 
 
 if __name__ == "__main__":
