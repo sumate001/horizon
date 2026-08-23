@@ -1,0 +1,721 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Horizon ทำงานอย่างไร — ระบบเฝ้าระวังข่าวกรอง</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --ink-900: #0a0c10;
+        --ink-800: #11141b;
+        --ink-700: #171b24;
+        --ink-600: #1e232e;
+        --ink-500: #2a3040;
+        --text: #e2e8f0;
+        --text-2: #94a3b8;
+        --text-3: #64748b;
+        --cyan: #22d3ee;
+        --amber: #fbbf24;
+        --emerald: #34d399;
+        --rose: #fb7185;
+        --violet: #a78bfa;
+        --blue: #60a5fa;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--ink-900);
+        color: var(--text);
+        font-family: "Noto Sans Thai", Inter, system-ui, sans-serif;
+        line-height: 1.75;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 1000px; margin: 0 auto; padding: 0 24px 100px; }
+      code, .mono { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 0.9em; }
+
+      /* ── header ── */
+      header {
+        border-bottom: 1px solid var(--ink-500);
+        background: linear-gradient(180deg, #10141d 0%, var(--ink-900) 100%);
+        padding: 64px 24px 56px;
+        text-align: center;
+      }
+      header h1 { margin: 0 0 8px; font-size: 40px; letter-spacing: -0.02em; }
+      header .sub { color: var(--text-2); font-size: 17px; max-width: 640px; margin: 0 auto; }
+      .kicker {
+        display: inline-block; font-size: 12px; letter-spacing: 0.12em;
+        text-transform: uppercase; color: var(--cyan); margin-bottom: 14px;
+      }
+
+      /* ── sections ── */
+      section { margin-top: 68px; }
+      h2 {
+        font-size: 25px; margin: 0 0 6px; letter-spacing: -0.01em;
+        display: flex; align-items: baseline; gap: 12px;
+      }
+      h2 .n {
+        font-family: ui-monospace, monospace; font-size: 13px; color: var(--ink-500);
+        border: 1px solid var(--ink-500); border-radius: 6px; padding: 2px 8px;
+        flex-shrink: 0;
+      }
+      .lead { color: var(--text-2); margin: 0 0 26px; font-size: 16px; }
+      p { margin: 0 0 14px; }
+
+      .card {
+        background: var(--ink-800); border: 1px solid var(--ink-500);
+        border-radius: 12px; padding: 20px 22px;
+      }
+      .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+      @media (max-width: 760px) { .grid2 { grid-template-columns: 1fr; } }
+
+      /* ── two systems ── */
+      .systems { display: grid; grid-template-columns: 1fr 60px 1fr; align-items: stretch; gap: 0; }
+      @media (max-width: 760px) { .systems { grid-template-columns: 1fr; } }
+      .sys { background: var(--ink-800); border: 1px solid var(--ink-500); border-radius: 12px; padding: 22px; }
+      .sys h3 { margin: 0 0 4px; font-size: 19px; }
+      .sys .role { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 12px; }
+      .sys ul { margin: 12px 0 0; padding-left: 18px; color: var(--text-2); font-size: 14px; }
+      .sys li { margin-bottom: 5px; }
+      .radar { border-color: rgba(34, 211, 238, 0.35); }
+      .radar .role { color: var(--cyan); }
+      .desk { border-color: rgba(167, 139, 250, 0.35); }
+      .desk .role { color: var(--violet); }
+      .link-col {
+        display: flex; flex-direction: column; align-items: center;
+        justify-content: center; gap: 6px; color: var(--text-3); font-size: 11px;
+      }
+      .arrow-r, .arrow-l { font-size: 20px; line-height: 1; }
+      .arrow-r { color: var(--cyan); }
+      .arrow-l { color: var(--emerald); }
+      @media (max-width: 760px) { .link-col { flex-direction: row; padding: 14px 0; } }
+
+      /* ── rhythms ── */
+      .rhythm { display: grid; grid-template-columns: 132px 1fr; gap: 18px; margin-bottom: 14px; }
+      @media (max-width: 760px) { .rhythm { grid-template-columns: 1fr; gap: 6px; } }
+      .rhythm .when {
+        font-family: ui-monospace, monospace; font-size: 13px; color: var(--text);
+        background: var(--ink-700); border: 1px solid var(--ink-500);
+        border-radius: 8px; padding: 8px 10px; text-align: center; height: fit-content;
+      }
+      .rhythm .what { background: var(--ink-800); border: 1px solid var(--ink-500); border-radius: 10px; padding: 14px 18px; }
+      .rhythm .what strong { display: block; margin-bottom: 3px; }
+      .rhythm .what span { color: var(--text-2); font-size: 14px; }
+
+      /* ── steps ── */
+      .step {
+        display: grid; grid-template-columns: 44px 1fr; gap: 18px;
+        padding: 22px 0; border-bottom: 1px solid var(--ink-600);
+      }
+      .step:last-child { border-bottom: none; }
+      .step .num {
+        width: 40px; height: 40px; border-radius: 10px; display: flex;
+        align-items: center; justify-content: center; font-weight: 700;
+        font-family: ui-monospace, monospace; font-size: 15px;
+        background: var(--ink-700); border: 1px solid var(--ink-500); color: var(--text-2);
+      }
+      .step h4 { margin: 6px 0 6px; font-size: 17px; }
+      .step .plain { color: var(--text); margin-bottom: 10px; }
+      .step .detail {
+        color: var(--text-2); font-size: 14px; background: var(--ink-800);
+        border-left: 2px solid var(--ink-500); border-radius: 0 8px 8px 0;
+        padding: 10px 14px; margin-top: 10px;
+      }
+      .step .detail b { color: var(--text); font-weight: 600; }
+      .tag {
+        display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 5px;
+        margin-left: 8px; vertical-align: 2px; font-weight: 500;
+      }
+      .t-stream { background: rgba(52, 211, 153, 0.14); color: var(--emerald); }
+      .t-batch { background: rgba(96, 165, 250, 0.14); color: var(--blue); }
+      .t-event { background: rgba(251, 191, 36, 0.14); color: var(--amber); }
+      .t-human { background: rgba(167, 139, 250, 0.16); color: var(--violet); }
+
+      /* ── example walk ── */
+      .walk { position: relative; padding-left: 26px; }
+      .walk::before {
+        content: ""; position: absolute; left: 7px; top: 8px; bottom: 8px;
+        width: 2px; background: linear-gradient(180deg, var(--cyan), var(--violet));
+      }
+      .walk .beat { position: relative; margin-bottom: 20px; }
+      .walk .beat::before {
+        content: ""; position: absolute; left: -23px; top: 9px; width: 10px; height: 10px;
+        border-radius: 50%; background: var(--ink-900); border: 2px solid var(--cyan);
+      }
+      .walk .beat:last-child::before { border-color: var(--violet); }
+      .walk .t { font-family: ui-monospace, monospace; font-size: 12px; color: var(--text-3); }
+      .walk .beat p { margin: 2px 0 0; }
+
+      /* ── stats ── */
+      .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+      @media (max-width: 760px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+      .stat { background: var(--ink-800); border: 1px solid var(--ink-500); border-radius: 10px; padding: 16px; }
+      .stat .v { font-family: ui-monospace, monospace; font-size: 26px; color: var(--cyan); }
+      .stat .l { font-size: 12px; color: var(--text-3); margin-top: 2px; }
+
+      table { width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 8px; }
+      th { text-align: left; color: var(--text-3); font-weight: 600; font-size: 12px;
+           text-transform: uppercase; letter-spacing: 0.05em; padding: 8px 10px;
+           border-bottom: 1px solid var(--ink-500); }
+      td { padding: 10px; border-bottom: 1px solid var(--ink-600); color: var(--text-2); vertical-align: top; }
+      td:first-child { color: var(--text); white-space: nowrap; }
+
+      .note {
+        background: rgba(251, 191, 36, 0.07); border: 1px solid rgba(251, 191, 36, 0.28);
+        border-radius: 10px; padding: 14px 18px; color: #fde68a; font-size: 14.5px;
+      }
+      .quote {
+        border-left: 3px solid var(--ink-500); padding-left: 16px;
+        color: var(--text-2); font-style: italic; margin: 14px 0;
+      }
+      footer {
+        margin-top: 80px; padding-top: 24px; border-top: 1px solid var(--ink-600);
+        color: var(--text-3); font-size: 13px; text-align: center;
+      }
+      footer a { color: var(--cyan); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+
+  <body>
+    <header>
+      <span class="kicker">Horizon · News Intelligence Pipeline</span>
+      <h1>ระบบนี้ทำงานอย่างไร</h1>
+      <p class="sub">
+        อธิบายตั้งแต่ข่าวชิ้นแรกที่ถูกดึงเข้ามา จนถึงตอนที่นักวิเคราะห์ตัดสินใจ —
+        เขียนให้คนที่ไม่ได้อยู่กับระบบนี้อ่านรู้เรื่อง
+      </p>
+    </header>
+
+    <div class="wrap">
+      <!-- ─────────────────────────────────────────── -->
+      <section>
+        <h2><span class="n">00</span> ปัญหาที่ระบบนี้แก้</h2>
+        <p class="lead">ทำไมต้องมีระบบ ในเมื่อคนอ่านข่าวเองก็ได้</p>
+
+        <div class="card">
+          <p>
+            สำนักข่าวไทยผลิตข่าวรวมกันหลายร้อยชิ้นต่อวัน คนหนึ่งคนอ่านไม่ทัน
+            และปัญหาที่แท้จริงไม่ใช่ "อ่านไม่ทัน" แต่คือ <b>สามอย่างนี้</b>:
+          </p>
+          <ul style="color: var(--text-2); margin: 0; padding-left: 20px">
+            <li style="margin-bottom: 6px">
+              <b style="color: var(--text)">ข่าวเดียวกันถูกนับซ้ำ</b> — เรื่องเดียวจาก 5 สำนัก
+              ทำให้ดูเหมือนมี 5 เรื่อง และดูสำคัญกว่าความเป็นจริง
+            </li>
+            <li style="margin-bottom: 6px">
+              <b style="color: var(--text)">เรื่องที่กำลังก่อตัวมองไม่เห็น</b> — ข่าวเล็ก ๆ ที่ยังไม่ดัง
+              มักถูกกลบด้วยข่าวใหญ่ ทั้งที่มันคือสิ่งที่ควรรู้ก่อน
+            </li>
+            <li>
+              <b style="color: var(--text)">คนอ่านตามพาดหัว ไม่ใช่ตามอัตราเร่ง</b> —
+              เรื่องที่ "ถูกพูดถึงเพิ่มขึ้นเร็วผิดปกติ" สำคัญกว่าเรื่องที่ "ถูกพูดถึงเยอะ" เฉย ๆ
+            </li>
+          </ul>
+          <p style="margin: 16px 0 0">
+            Horizon ทำหน้าที่เป็น <b>เรดาร์</b> — กวาดข่าวทั้งหมดโดยอัตโนมัติ รวมเรื่องซ้ำเข้าด้วยกัน
+            แล้วชี้ว่า <em>เรื่องไหนควรให้คนไปดูต่อ</em> ระบบไม่ได้ตัดสินใจแทนคน
+            แต่ทำให้คนไม่ต้องเสียเวลากับการคัดกรอง
+          </p>
+        </div>
+      </section>
+
+      <!-- ─────────────────────────────────────────── -->
+      <section>
+        <h2><span class="n">01</span> สองระบบ คนละหน้าที่</h2>
+        <p class="lead">Horizon หาว่า "อะไรน่าสนใจ" — OSINT//DESK หาว่า "แล้วมันจริงไหม"</p>
+
+        <div class="systems">
+          <div class="sys radar">
+            <div class="role">ระบบอัตโนมัติ · ขั้นที่ 1–9</div>
+            <h3>Horizon</h3>
+            <p style="color: var(--text-2); font-size: 14px; margin: 0">
+              เรดาร์ที่ทำงานตลอดเวลา ไม่มีคนเกี่ยวข้อง
+            </p>
+            <ul>
+              <li>ดึงข่าวทุก 15 นาที</li>
+              <li>รวมข่าวซ้ำให้เป็นเหตุการณ์เดียว</li>
+              <li>จัดกลุ่มเรื่องที่เกี่ยวข้องกัน</li>
+              <li>คำนวณว่าเรื่องไหนกำลังมาแรงผิดปกติ</li>
+              <li>เขียนฉากทัศน์ว่าอาจไปทางไหนได้บ้าง</li>
+            </ul>
+          </div>
+
+          <div class="link-col">
+            <span class="arrow-r">→</span>
+            <span>ส่งสัญญาณ</span>
+            <span style="margin: 8px 0"></span>
+            <span class="arrow-l">←</span>
+            <span>ส่งผลสรุปกลับ</span>
+          </div>
+
+          <div class="sys desk">
+            <div class="role">มนุษย์ตัดสิน · ขั้นที่ 10</div>
+            <h3>OSINT//DESK</h3>
+            <p style="color: var(--text-2); font-size: 14px; margin: 0">
+              โต๊ะทำงานของนักวิเคราะห์ ระบบไม่ตัดสินใจแทน
+            </p>
+            <ul>
+              <li>รับสัญญาณเข้ามาเป็น "เบาะแส" ยังไม่ใช่คดี</li>
+              <li>นักวิเคราะห์เลือกว่าจะรับเรื่องหรือตีกลับ</li>
+              <li>ถ้ารับ → เปิดเป็น Case พร้อมหลักฐานตั้งต้น</li>
+              <li>สืบสวนเชิงลึกด้วยเครื่องมือ OSINT</li>
+              <li>ปิดคดีพร้อมสรุปว่า "จริง / หลอก / สรุปไม่ได้"</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="note" style="margin-top: 18px">
+          <b>จุดสำคัญ:</b> ผลสรุปที่นักวิเคราะห์บันทึกจะถูกส่ง<em>กลับ</em>ไปที่ Horizon เสมอ
+          นี่คือวิธีที่เรดาร์เรียนรู้ว่าตัวเองเตือนถูกหรือเตือนผิด
+          ถ้าไม่มีขั้นนี้ ระบบจะเดาไปเรื่อย ๆ โดยไม่มีวันแม่นขึ้น
+        </div>
+      </section>
+
+      <!-- ─────────────────────────────────────────── -->
+      <section>
+        <h2><span class="n">02</span> ทำไมต้องมีสามจังหวะ</h2>
+        <p class="lead">
+          งานแต่ละแบบมีต้นทุนต่างกันมาก การเอาทุกอย่างมารันพร้อมกันคือการเผาทรัพยากรทิ้ง
+        </p>
+
+        <div class="rhythm">
+          <div class="when">ทุก 15 นาที</div>
+          <div class="what">
+            <strong>จังหวะที่ 1 — สายพาน</strong>
+            <span>
+              ดึงข่าว อ่านข่าว แยกว่าใครทำอะไรที่ไหน แล้วเช็คว่าซ้ำกับที่มีอยู่ไหม
+              งานนี้ถูกและต้องทำต่อเนื่อง เพราะข่าวไม่รอ
+            </span>
+          </div>
+        </div>
+
+        <div class="rhythm">
+          <div class="when">ทุก 3 ชั่วโมง</div>
+          <div class="what">
+            <strong>จังหวะที่ 2 — คำนวณภาพรวม</strong>
+            <span>
+              จัดกลุ่มเรื่องที่เกี่ยวข้องกัน แล้วคำนวณว่าอันไหนมาแรงผิดปกติ
+              ต้องมองย้อนหลังหลายวันถึงจะเห็นแนวโน้ม ทำถี่กว่านี้ก็ไม่ได้คำตอบต่างกัน
+            </span>
+          </div>
+        </div>
+
+        <div class="rhythm">
+          <div class="when">เมื่อมีสัญญาณ</div>
+          <div class="what">
+            <strong>จังหวะที่ 3 — คิดเชิงลึก</strong>
+            <span>
+              ประเมินว่าเรื่องนี้กระทบอะไรบ้าง แล้วเขียนฉากทัศน์ ขั้นนี้ใช้ AI หนักมาก
+              (~96 ครั้งต่อสัญญาณ ราว 12 นาที) จึงต้องรอให้ผ่านเกณฑ์ก่อน ไม่ใช่ทำกับทุกเรื่อง
+            </span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ─────────────────────────────────────────── -->
+      <section>
+        <h2><span class="n">03</span> สิบขั้นตอน ตั้งแต่ข่าวถึงการตัดสินใจ</h2>
+        <p class="lead">แต่ละขั้นมีเหตุผลของมัน — ตัดขั้นไหนออก ผลลัพธ์จะเพี้ยนทันที</p>
+
+        <div class="card" style="padding: 4px 22px">
+          <div class="step">
+            <div class="num">1</div>
+            <div>
+              <h4>ดึงข่าวเข้ามา <span class="tag t-stream">สายพาน</span></h4>
+              <p class="plain">
+                ไปอ่าน RSS ของสำนักข่าวที่ตั้งไว้ทุก 15 นาที ถ้าข่าวที่ได้มาสั้นเกินไป
+                (RSS มักให้แค่ย่อหน้าแรก) ระบบจะตามไปเปิดหน้าเว็บจริงเพื่อดึงเนื้อหาเต็ม
+              </p>
+              <div class="detail">
+                <b>ทำไมต้องดึงเนื้อหาเต็ม:</b> AI อ่านจากย่อหน้าเดียวจะสกัดข้อมูลผิด
+                เช่นไม่รู้ว่าเหตุเกิดที่ไหนหรือใครเกี่ยวข้อง คุณภาพทุกขั้นถัดไปขึ้นกับขั้นนี้
+              </div>
+            </div>
+          </div>
+
+          <div class="step">
+            <div class="num">2</div>
+            <div>
+              <h4>กรองแหล่งที่เชื่อถือไม่ได้ <span class="tag t-stream">สายพาน</span></h4>
+              <p class="plain">
+                ทุกแหล่งข่าวมี "คะแนนความน่าเชื่อถือ" 0–1 ที่นักวิเคราะห์ตั้งเองได้
+                แหล่งที่ต่ำกว่า 0.20 จะถูกทิ้งตั้งแต่ก่อนเสียเวลาให้ AI อ่าน
+              </p>
+              <div class="detail">
+                คะแนนนี้ไม่ได้แค่ใช้กรอง แต่ติดตัวไปกับข่าวตลอดทาง —
+                ตอนคำนวณว่าเรื่องไหนมาแรง ข่าวจากแหล่งน่าเชื่อถือจะมีน้ำหนักมากกว่า
+              </div>
+            </div>
+          </div>
+
+          <div class="step">
+            <div class="num">3</div>
+            <div>
+              <h4>ให้ AI อ่านและสรุป <span class="tag t-stream">สายพาน</span></h4>
+              <p class="plain">
+                AI อ่านข่าวแล้วตอบว่า <b>ใคร ทำอะไร ที่ไหน เมื่อไหร่</b>
+                พร้อมจัดหมวด (การเมือง เศรษฐกิจ ความมั่นคง ฯลฯ) และเขียนสรุปสั้น ๆ ภาษาไทย
+              </p>
+              <div class="detail">
+                <b>กฎเหล็กคือห้ามเดาวันที่</b> — ข่าวไทยเขียน "21 ส.ค." โดยไม่บอกปีเป็นเรื่องปกติ
+                ตอนแรกระบบให้ AI เดาเอง ผลคือ 41 จาก 92 เหตุการณ์ได้ปีผิด (มีถึงปี 2069)
+                แก้โดยส่งวันที่เผยแพร่ข่าวไปให้เป็นจุดอ้างอิงด้วย
+              </div>
+            </div>
+          </div>
+
+          <div class="step">
+            <div class="num">4</div>
+            <div>
+              <h4>รวมข่าวซ้ำให้เป็นเหตุการณ์เดียว <span class="tag t-stream">สายพาน</span></h4>
+              <p class="plain">
+                เรื่องเดียวกันจาก 5 สำนักข่าว ต้องนับเป็น <b>1 เหตุการณ์ที่มี 5 แหล่ง</b>
+                ไม่ใช่ 5 เหตุการณ์ ระบบเช็คสองชั้น: ชั้นแรกดูว่าข้อความเหมือนกันไหม
+                ชั้นสองดูว่า<em>ความหมาย</em>เหมือนกันไหม
+              </p>
+              <div class="detail">
+                <b>ซ้ำ กับ อัปเดต ต่างกัน:</b> ถ้าเป็นเรื่องเดียวกันแต่<em>ตัวเลขเปลี่ยน</em>
+                (เช่นยอดผู้เสียชีวิตจาก 12 เป็น 19) ระบบไม่ทิ้ง แต่ถือเป็นการอัปเดต —
+                เขียนสรุปใหม่และเก็บของเก่าไว้ตรวจสอบย้อนหลังได้
+              </div>
+            </div>
+          </div>
+
+          <div class="step">
+            <div class="num">5</div>
+            <div>
+              <h4>จัดกลุ่มเรื่องที่เกี่ยวข้องกัน <span class="tag t-batch">ภาพรวม</span></h4>
+              <p class="plain">
+                รวมเหตุการณ์ที่พูดถึงเรื่องเดียวกันเข้าเป็น "คลัสเตอร์"
+                เช่นข่าวน้ำท่วมน่านจากหลายวันหลายมุมมองจะอยู่กลุ่มเดียวกัน
+              </p>
+              <div class="detail">
+                ระบบใช้ทั้ง<b>ความหมาย</b>และ<b>เวลา</b> — เรื่องที่คล้ายกันแต่ห่างกันเกิน 2 สัปดาห์
+                ถือเป็นคนละเรื่อง (น้ำท่วมปีนี้ ไม่ใช่เรื่องเดียวกับน้ำท่วมปีที่แล้ว)
+                <br />เหตุการณ์ที่เข้ากลุ่มไหนไม่ได้เลย <em>ไม่ได้ถูกทิ้ง</em> —
+                มันคือวัตถุดิบของขั้นที่ 6
+              </div>
+            </div>
+          </div>
+
+          <div class="step">
+            <div class="num">6</div>
+            <div>
+              <h4>หาสัญญาณอ่อน <span class="tag t-batch">ภาพรวม</span></h4>
+              <p class="plain">
+                เรื่องที่ยัง<em>ไม่ดัง</em>แต่ผิดปกติ — นี่คือสิ่งที่ระบบเรดาร์มีค่าที่สุด
+                เพราะเรื่องที่ดังแล้วนักข่าวก็เห็นเองอยู่แล้ว
+              </p>
+              <div class="detail">
+                ดูสามอย่างประกอบกัน: <b>แปลกใหม่</b> (ไม่เหมือนอะไรที่เคยมี) ·
+                <b>โดดเดี่ยว</b> (รูปแบบการรายงานผิดจากปกติ) ·
+                <b>ปะทุ</b> (จู่ ๆ ถูกพูดถึงถี่ขึ้นผิดจังหวะ)
+                แล้วคูณด้วยความน่าเชื่อถือของแหล่ง — เรื่องแปลกที่มาจากแหล่งไม่น่าเชื่อถือ ต้องถูกกดคะแนนลง
+              </div>
+            </div>
+          </div>
+
+          <div class="step">
+            <div class="num">7</div>
+            <div>
+              <h4>ประเมินว่ากระทบอะไร <span class="tag t-event">คิดเชิงลึก</span></h4>
+              <p class="plain">
+                เทียบเรื่องนี้กับเรื่องใหญ่อื่น ๆ ทีละคู่ ว่าอันไหนกระทบ
+                <b>การเมือง / เศรษฐกิจ / สังคม / เทคโนโลยี / สิ่งแวดล้อม / กฎหมาย</b> มากกว่ากัน
+              </p>
+              <div class="detail">
+                ระบบยังตรวจด้วยว่า<b>คำตอบขัดแย้งกันเองหรือเปล่า</b> — ถ้า AI ตอบว่า
+                ก&gt;ข, ข&gt;ค แต่ ค&gt;ก แปลว่าคำตอบเชื่อไม่ได้ ระบบจะบันทึกไว้พร้อมคำเตือน
+                ไม่ใช่แกล้งทำเป็นว่าผลลัพธ์น่าเชื่อถือ
+              </div>
+            </div>
+          </div>
+
+          <div class="step">
+            <div class="num">8</div>
+            <div>
+              <h4>คำนวณว่าเรื่องไหนมาแรงผิดปกติ <span class="tag t-batch">ภาพรวม</span></h4>
+              <p class="plain">
+                ขั้นนี้<b>ไม่ใช้ AI เลย</b> เป็นสถิติล้วน ดูสามอย่าง: ถูกพูดถึงมากแค่ไหน ·
+                เพิ่มขึ้นเร็วแค่ไหน · <em>อัตราเร่ง</em>กำลังเพิ่มขึ้นอีกไหม
+              </p>
+              <div class="detail">
+                เทียบกับ<b>ประวัติของตัวเอง</b> ไม่ใช่เทียบกับเรื่องอื่น —
+                ข่าวการเมืองย่อมมีเยอะกว่าข่าวพลังงานเป็นปกติ สิ่งที่น่าสนใจคือ
+                "ข่าวพลังงานสัปดาห์นี้มากกว่าปกติของข่าวพลังงานเอง"
+                <br /><b>คลัสเตอร์ที่เกิดใหม่ยังไม่ถึง 14 วันจะถูกทำเครื่องหมายว่า "ชั่วคราว"</b>
+                และไม่ส่งแจ้งเตือน เพราะสถิติจากข้อมูลไม่กี่วันบอกอะไรไม่ได้
+              </div>
+            </div>
+          </div>
+
+          <div class="step">
+            <div class="num">9</div>
+            <div>
+              <h4>เขียนฉากทัศน์ <span class="tag t-event">คิดเชิงลึก</span></h4>
+              <p class="plain">
+                AI อ่านทุกอย่างที่ระบบรู้เกี่ยวกับเรื่องนี้ แล้วเขียนสามฉากทัศน์:
+                <b>กรณีดีที่สุด · กรณีที่น่าจะเป็น · กรณีเลวร้ายที่สุด</b>
+                พร้อมตัวชี้วัดที่ต้องเฝ้าดูว่าจะไปทางไหน
+              </p>
+              <div class="detail">
+                <b>ฉากทัศน์ไม่ใช่คำพยากรณ์</b> — เป็นความเป็นไปได้ที่มีเงื่อนไข เขียนในรูปแบบ
+                "หาก...จะ..." เสมอ และทุกฉากทัศน์บันทึกไว้ว่าอ้างอิงจากเหตุการณ์ชิ้นไหนบ้าง
+                เพื่อให้ตรวจสอบย้อนกลับได้ว่ามันคิดจากอะไร
+              </div>
+            </div>
+          </div>
+
+          <div class="step">
+            <div class="num">10</div>
+            <div>
+              <h4>คนตัดสิน <span class="tag t-human">มนุษย์</span></h4>
+              <p class="plain">
+                สัญญาณถูกส่งไปที่ OSINT//DESK เป็น <b>เบาะแส ไม่ใช่คดี</b>
+                นักวิเคราะห์เลือกเองว่าจะรับเรื่องหรือตีกลับ ระบบไม่เปิดคดีเองเด็ดขาด
+              </p>
+              <div class="detail">
+                ถ้ารับเรื่อง → ระบบเปิด Case ให้พร้อมสรุป หลักฐานตั้งต้น และลิงก์ข่าวต้นทาง
+                นักวิเคราะห์สืบต่อด้วยเครื่องมือของตัวเอง แล้วปิดคดีพร้อมสรุปว่า
+                <b>จริง / หลอก / สรุปไม่ได้</b> — ผลนี้เดินทางกลับไปหา Horizon
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ─────────────────────────────────────────── -->
+      <section>
+        <h2><span class="n">04</span> ลองเดินตามข่าวหนึ่งชิ้น</h2>
+        <p class="lead">ตัวอย่างจริงจากระบบ — คดีทำร้ายร่างกายที่ทองหล่อ</p>
+
+        <div class="card">
+          <div class="walk">
+            <div class="beat">
+              <div class="t">14:20</div>
+              <p>
+                ไทยรัฐลงข่าวตำรวจ สน.ทองหล่อ จับผู้ต้องหาคดีทำร้ายและโยนศพลงสระ
+                ระบบดึงเข้ามาในรอบถัดไป
+              </p>
+            </div>
+            <div class="beat">
+              <div class="t">14:22</div>
+              <p>
+                AI อ่านแล้วสกัดได้: ผู้เกี่ยวข้อง = ตำรวจ สน.ทองหล่อ, นายทวีศักดิ์ พันธ์งาม ·
+                สถานที่ = สวนเบญจสิริ · หมวด = สังคม, ความมั่นคง
+              </p>
+            </div>
+            <div class="beat">
+              <div class="t">14:31</div>
+              <p>
+                ข่าวสดลงเรื่องเดียวกัน คนละสำนวน — ระบบตรวจพบว่าความหมายเหมือนกัน
+                จึงรวมเป็นเหตุการณ์เดิม แล้วเพิ่มจำนวนแหล่งเป็น 2
+                <b style="color: var(--emerald)">ไม่ได้นับเป็นข่าวใหม่</b>
+              </p>
+            </div>
+            <div class="beat">
+              <div class="t">15:02</div>
+              <p>
+                มติชนและ PPTV ลงเพิ่ม รวมเป็น 4 แหล่ง — สังเกตว่ายอดข่าว 4 ชิ้น
+                แต่ในระบบยังเป็น <b>1 เหตุการณ์</b> ที่มีน้ำหนักมากขึ้น
+              </p>
+            </div>
+            <div class="beat">
+              <div class="t">17:00</div>
+              <p>
+                รอบคำนวณภาพรวม จัดทั้ง 4 ชิ้นเข้าคลัสเตอร์เดียวกัน
+                แล้วดูว่าอัตราการรายงานผิดปกติไหม
+              </p>
+            </div>
+            <div class="beat">
+              <div class="t">17:05</div>
+              <p>
+                หากคะแนนถึงเกณฑ์ → ระบบประเมินว่าเรื่องนี้กระทบด้านใดมากที่สุด เขียนฉากทัศน์
+                แล้วส่งเข้า OSINT//DESK พร้อมแจ้งเตือน Telegram
+              </p>
+            </div>
+            <div class="beat">
+              <div class="t">วันถัดมา</div>
+              <p>
+                นักวิเคราะห์เห็นในกล่องขาเข้า → รับเรื่อง → ระบบเปิด Case ให้พร้อมลิงก์ข่าวทั้ง 4
+                → สืบต่อ → ปิดคดีพร้อมสรุป <b style="color: var(--violet)">"จริง"</b>
+                → ผลเดินทางกลับไปบอก Horizon ว่าเตือนถูก
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ─────────────────────────────────────────── -->
+      <section>
+        <h2><span class="n">05</span> ตัวเลขจากระบบจริง</h2>
+        <p class="lead">ข้อมูลที่สะสมได้จากการรันจริง ไม่ใช่ตัวเลขสมมติ</p>
+
+        <div class="stats">
+          <div class="stat"><div class="v">563</div><div class="l">บทความที่ดึงเข้ามา</div></div>
+          <div class="stat"><div class="v">486</div><div class="l">เหตุการณ์หลังรวมข่าวซ้ำ</div></div>
+          <div class="stat"><div class="v">36</div><div class="l">ข่าวซ้ำที่ถูกรวม</div></div>
+          <div class="stat"><div class="v">13</div><div class="l">คลัสเตอร์ที่จัดกลุ่มได้</div></div>
+        </div>
+
+        <p style="margin-top: 22px">
+          ตัวอย่างคลัสเตอร์ที่ระบบจัดกลุ่มได้เอง โดยไม่มีใครบอกว่าเรื่องพวกนี้เกี่ยวกัน:
+        </p>
+        <table>
+          <thead>
+            <tr><th>คลัสเตอร์</th><th>ประกอบด้วย</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>คดีทองหล่อ</td>
+              <td>ข่าวคดีเดียวกันจาก 4 สำนักข่าว คนละสำนวน</td>
+            </tr>
+            <tr>
+              <td>อาร์เซนอล–โคเวนทรี</td>
+              <td>รายงานผลนัดเดียวกัน 4 ชิ้น รวมบทสัมภาษณ์โค้ช</td>
+            </tr>
+            <tr>
+              <td>อุทกภัยภาคเหนือ</td>
+              <td>ข่าวน้ำท่วมน่าน สุโขทัย พิษณุโลก และการลงพื้นที่ของรัฐมนตรี</td>
+            </tr>
+            <tr>
+              <td>ทุจริตสอบท้องถิ่น</td>
+              <td>ความคืบหน้าการสอบสวนของ กมธ.ป.ป.ช. และ DSI หลายวัน</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <p style="margin-top: 20px; color: var(--text-2); font-size: 14px">
+          เหตุการณ์ราว 70% ไม่เข้าคลัสเตอร์ไหนเลย ซึ่ง<em>ถูกต้อง</em> —
+          ข่าวส่วนใหญ่เป็นเรื่องเดี่ยว ๆ ที่ไม่มีใครตามต่อ และกลุ่มนี้เองคือที่ที่ระบบไปหาสัญญาณอ่อน
+        </p>
+      </section>
+
+      <!-- ─────────────────────────────────────────── -->
+      <section>
+        <h2><span class="n">06</span> ระบบจะแม่นขึ้นได้อย่างไร</h2>
+        <p class="lead">วงจรป้อนกลับ — ส่วนที่ทำให้มันไม่ใช่แค่เครื่องมือกรองข่าว</p>
+
+        <div class="card">
+          <p>
+            ทุกครั้งที่นักวิเคราะห์ปิดคดีพร้อมสรุปว่า <b>จริง / หลอก / สรุปไม่ได้</b>
+            ผลนั้นถูกส่งกลับไปที่ Horizon พร้อมกับคะแนนทั้งหมดที่ระบบเคยให้ไว้ตอนส่งสัญญาณ
+          </p>
+          <p class="quote">
+            "สัญญาณที่คะแนนความแปลกใหม่ 0.55 คะแนนการปะทุ 0.30 มาจากแหล่งความน่าเชื่อถือ 0.9
+            → นักวิเคราะห์ตัดสินว่าเป็นเรื่องจริง"
+          </p>
+          <p>
+            เก็บข้อมูลแบบนี้ไปเรื่อย ๆ จะตอบได้ว่า <b>เกณฑ์ที่ตั้งไว้สูงหรือต่ำเกินไป</b>
+            เช่นถ้าสัญญาณที่คะแนน 0.65–0.70 กลายเป็นเรื่องหลอกเกือบหมด ก็ควรขยับเกณฑ์ขึ้น
+            ระบบมีปุ่มส่งออกข้อมูลชุดนี้ไปวิเคราะห์นอกระบบได้เลย
+          </p>
+          <div class="note" style="margin-top: 16px">
+            ตอนนี้ยังไม่มีข้อมูลป้อนกลับมากพอจะปรับเกณฑ์ได้ —
+            ต้องสะสมผลตัดสินจากนักวิเคราะห์อีกระยะหนึ่งก่อน การปรับเกณฑ์จากข้อมูลไม่กี่ชิ้น
+            จะทำให้ระบบแย่ลง ไม่ใช่ดีขึ้น
+          </div>
+        </div>
+      </section>
+
+      <!-- ─────────────────────────────────────────── -->
+      <section>
+        <h2><span class="n">07</span> ศัพท์ที่เจอบ่อย</h2>
+        <p class="lead">แปลเป็นภาษาคน</p>
+
+        <table>
+          <thead>
+            <tr><th style="width: 190px">คำ</th><th>หมายความว่า</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>เหตุการณ์ (Event)</td>
+              <td>เรื่องหนึ่งเรื่อง หลังรวมข่าวซ้ำแล้ว — ข่าว 5 ชิ้นเรื่องเดียวกัน = 1 เหตุการณ์</td>
+            </tr>
+            <tr>
+              <td>คลัสเตอร์ (Cluster)</td>
+              <td>กลุ่มของเหตุการณ์ที่เกี่ยวข้องกัน เช่นข่าวน้ำท่วมหลายวันหลายจังหวัด</td>
+            </tr>
+            <tr>
+              <td>สัญญาณอ่อน</td>
+              <td>เรื่องที่ยังไม่ดังแต่ผิดปกติ — สิ่งที่ควรรู้ก่อนคนอื่น</td>
+            </tr>
+            <tr>
+              <td>Trend breakout</td>
+              <td>เรื่องที่ถูกพูดถึงเพิ่มขึ้นเร็วผิดปกติเมื่อเทียบกับประวัติของตัวเอง</td>
+            </tr>
+            <tr>
+              <td>ชั่วคราว (Provisional)</td>
+              <td>คลัสเตอร์ที่ยังใหม่เกินไป (&lt; 14 วัน) — แสดงคะแนนได้ แต่ยังไม่ส่งแจ้งเตือน</td>
+            </tr>
+            <tr>
+              <td>แรงขับเคลื่อน</td>
+              <td>ปัจจัยหกด้าน (การเมือง เศรษฐกิจ สังคม เทคโนโลยี สิ่งแวดล้อม กฎหมาย) ที่ใช้วัดว่าเรื่องนี้กระทบอะไร</td>
+            </tr>
+            <tr>
+              <td>ฉากทัศน์</td>
+              <td>ความเป็นไปได้ที่มีเงื่อนไข ในรูป "หาก...จะ..." <b>ไม่ใช่คำทำนาย</b></td>
+            </tr>
+            <tr>
+              <td>ความน่าเชื่อถือ</td>
+              <td>คะแนน 0–1 ของแต่ละแหล่งข่าว นักวิเคราะห์ปรับเองได้ตลอด</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <!-- ─────────────────────────────────────────── -->
+      <section>
+        <h2><span class="n">08</span> สิ่งที่ระบบนี้ไม่ทำ</h2>
+        <p class="lead">การรู้ขอบเขตสำคัญพอ ๆ กับการรู้ความสามารถ</p>
+
+        <div class="grid2">
+          <div class="card">
+            <p style="margin: 0; color: var(--text-2)">
+              <b style="color: var(--rose)">ไม่ตัดสินว่าข่าวจริงหรือปลอม</b><br />
+              ระบบใช้ความน่าเชื่อถือของ<em>แหล่ง</em>เท่านั้น ยังไม่ได้อ่านเนื้อหาแล้วบอกว่าจริงไหม
+              การตรวจสอบข้อเท็จจริงเป็นงานของคนในขั้นที่ 10
+            </p>
+          </div>
+          <div class="card">
+            <p style="margin: 0; color: var(--text-2)">
+              <b style="color: var(--rose)">ไม่เปิดคดีเอง</b><br />
+              สัญญาณที่ส่งไปเป็นเบาะแสเสมอ ต้องมีนักวิเคราะห์กดรับเรื่องก่อน
+              ระบบไม่มีสิทธิ์สร้างงานให้ใคร
+            </p>
+          </div>
+          <div class="card">
+            <p style="margin: 0; color: var(--text-2)">
+              <b style="color: var(--rose)">ไม่พยากรณ์อนาคต</b><br />
+              ฉากทัศน์คือ "ถ้าเงื่อนไขนี้เกิด อาจนำไปสู่สิ่งนี้"
+              ไม่ใช่การบอกว่าอะไรจะเกิดขึ้น และต้องผ่านการกลั่นกรองของนักวิเคราะห์เสมอ
+            </p>
+          </div>
+          <div class="card">
+            <p style="margin: 0; color: var(--text-2)">
+              <b style="color: var(--rose)">ไม่รับประกันว่าเห็นทุกอย่าง</b><br />
+              ระบบเห็นเฉพาะแหล่งข่าวที่ตั้งค่าไว้ เรื่องที่ไม่มีสำนักข่าวไหนรายงาน
+              ระบบก็ไม่เห็นเช่นกัน
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <footer>
+        Horizon — ระบบเฝ้าระวังข่าวกรอง ·
+        <a href="/">กลับไปหน้าแดชบอร์ด</a>
+        <br />
+        <span style="opacity: 0.7"
+          >ฉากทัศน์เป็นความเป็นไปได้ที่มีเงื่อนไข ไม่ใช่คำพยากรณ์ —
+          ต้องผ่านการกลั่นกรองของนักวิเคราะห์</span
+        >
+      </footer>
+    </div>
+  </body>
+</html>

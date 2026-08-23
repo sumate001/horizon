@@ -42,7 +42,14 @@ function Header() {
             </NavLink>
           ))}
         </nav>
-        <div className="ml-auto flex items-center gap-3 text-[11px] text-slate-500">
+        {/* Plain HTML, served straight from public/ — nothing to build or route. */}
+        <a
+          href="/workflow.html"
+          className="ml-auto rounded px-2.5 py-1.5 text-[11px] text-slate-500 transition-colors hover:bg-ink-700 hover:text-slate-300"
+        >
+          ระบบนี้ทำงานอย่างไร
+        </a>
+        <div className="flex items-center gap-3 text-[11px] text-slate-500">
           {error ? (
             <span className="chip bg-red-500/15 text-red-300">API ไม่ตอบสนอง</span>
           ) : (
