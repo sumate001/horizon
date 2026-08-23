@@ -169,6 +169,89 @@
         background: rgba(251, 191, 36, 0.07); border: 1px solid rgba(251, 191, 36, 0.28);
         border-radius: 10px; padding: 14px 18px; color: #fde68a; font-size: 14.5px;
       }
+
+      /* ── part divider ── */
+      .part {
+        margin-top: 96px; padding: 34px 24px; text-align: center;
+        border-top: 1px solid var(--ink-500); border-bottom: 1px solid var(--ink-500);
+        background: linear-gradient(180deg, rgba(34, 211, 238, 0.05), transparent);
+      }
+      .part .k {
+        font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase;
+        color: var(--cyan); display: block; margin-bottom: 8px;
+      }
+      .part h2 { display: block; font-size: 30px; margin: 0 0 6px; }
+      .part p { color: var(--text-2); margin: 0; font-size: 15px; }
+
+      /* ── diagrams ── */
+      pre.dia {
+        background: #0c0f15; border: 1px solid var(--ink-500); border-radius: 10px;
+        padding: 18px 20px; overflow-x: auto; font-size: 12.5px; line-height: 1.65;
+        color: var(--text-2); font-family: "JetBrains Mono", ui-monospace, monospace;
+        margin: 0;
+      }
+      pre.dia b { color: var(--cyan); font-weight: 600; }
+      pre.dia i { color: var(--violet); font-style: normal; }
+      pre.dia u { color: var(--emerald); text-decoration: none; }
+      pre.dia s { color: var(--text-3); text-decoration: none; }
+      pre.dia em { color: var(--amber); font-style: normal; }
+
+      /* Stack boundaries are CSS, not box-drawing characters: Thai glyphs are
+         not monospaced, so any ASCII frame with Thai inside comes out ragged. */
+      .stackbox { border: 1px solid var(--ink-500); border-radius: 12px; overflow: hidden; }
+      .stackbox pre.dia { border: none; border-radius: 0; background: #0c0f15; }
+      .stackbox-hd {
+        display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+        padding: 11px 20px; background: var(--ink-700);
+        border-bottom: 1px solid var(--ink-500);
+      }
+      .stackbox-hd b { font-family: ui-monospace, monospace; font-size: 13px; letter-spacing: 0.06em; }
+      .stackbox-hd span { font-size: 12px; color: var(--text-3); font-family: ui-monospace, monospace; }
+      .radar-box { border-color: rgba(34, 211, 238, 0.32); }
+      .radar-box .stackbox-hd b { color: var(--cyan); }
+      .desk-box { border-color: rgba(167, 139, 250, 0.32); }
+      .desk-box .stackbox-hd b { color: var(--violet); }
+
+      .bridge { padding: 16px 0 16px 22px; display: flex; flex-direction: column; gap: 8px; }
+      .bridge-line { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 13px; }
+      .bridge-line code {
+        background: var(--ink-800); border: 1px solid var(--ink-500);
+        border-radius: 6px; padding: 3px 9px; color: var(--text);
+      }
+      .bridge-line .dir { font-family: ui-monospace, monospace; font-size: 12px; width: 74px; }
+      .bridge-line .out { color: var(--cyan); }
+      .bridge-line .back { color: var(--emerald); }
+      .bridge-line .hdr { color: var(--text-3); font-family: ui-monospace, monospace; font-size: 11.5px; }
+
+      pre.json {
+        background: #0c0f15; border: 1px solid var(--ink-500); border-radius: 10px;
+        padding: 16px 18px; overflow-x: auto; font-size: 12.5px; line-height: 1.6;
+        color: var(--text-2); font-family: "JetBrains Mono", ui-monospace, monospace;
+        margin: 10px 0 0;
+      }
+      pre.json .k { color: var(--cyan); }
+      pre.json .s { color: var(--emerald); }
+      pre.json .n { color: var(--amber); }
+      pre.json .c { color: var(--text-3); }
+
+      /* ── service inventory ── */
+      .svcs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+      @media (max-width: 760px) { .svcs { grid-template-columns: 1fr; } }
+      .svc {
+        background: var(--ink-800); border: 1px solid var(--ink-500);
+        border-radius: 10px; padding: 13px 15px;
+      }
+      .svc .n { font-family: ui-monospace, monospace; font-size: 13px; color: var(--text); }
+      .svc .r { font-size: 12.5px; color: var(--text-3); margin-top: 3px; line-height: 1.5; }
+      .svc.infra { border-color: rgba(148, 163, 184, 0.28); }
+      .svc.app { border-color: rgba(34, 211, 238, 0.3); }
+      .svc.app .n { color: var(--cyan); }
+
+      .flow-note {
+        font-size: 13px; color: var(--text-3); margin-top: 10px;
+        display: flex; gap: 8px; align-items: flex-start;
+      }
+      .flow-note span:first-child { color: var(--cyan); }
       .quote {
         border-left: 3px solid var(--ink-500); padding-left: 16px;
         color: var(--text-2); font-style: italic; margin: 14px 0;
@@ -705,6 +788,366 @@
             </p>
           </div>
         </div>
+      </section>
+
+    </div>
+
+    <!-- ══════════════ PART TWO ══════════════ -->
+    <div class="part">
+      <span class="k">ภาคสอง</span>
+      <h2>สถาปัตยกรรมทางเทคนิค</h2>
+      <p>สำหรับผู้ดูแลระบบและผู้พัฒนา — ส่วนนี้ลงรายละเอียดว่าอะไรรันอยู่ที่ไหน และคุยกันอย่างไร</p>
+    </div>
+
+    <div class="wrap">
+      <!-- ─────────────────────────────────────────── -->
+      <section style="margin-top: 52px">
+        <h2><span class="n">09</span> ภาพรวมทั้งสองระบบ</h2>
+        <p class="lead">
+          สอง Docker stack แยกกันเด็ดขาด — คนละ compose project คนละ network คนละฐานข้อมูล
+          คุยกันผ่าน HTTP สองเส้นเท่านั้น
+        </p>
+
+        <div class="stackbox radar-box">
+          <div class="stackbox-hd">
+            <b>HORIZON</b><span>compose project: horizon · network: horizon_net</span>
+          </div>
+          <pre class="dia">
+RSS / SearXNG
+     │
+     ▼
+<b>poller</b> ──LPUSH──▶ <u>redis</u> ──BRPOP──▶ <b>worker</b> ──┬──▶ <u>postgres</u>
+<s>ทุก 15 นาที</s>       <s>(list)</s>                 ├──▶ <u>qdrant</u>   <s>เวกเตอร์ 1024 มิติ</s>
+                                          └──▶ <i>ollama</i>   <s>สกัดข้อมูล + ฝังเวกเตอร์</s>
+
+<b>batch</b> ────read────▶ <u>postgres</u> + <u>qdrant</u>
+<s>ทุก 3 ชม.</s>    clustering → trend scoring → weak signal
+     │
+     └──PUBLISH──▶ <u>redis</u>  channel <i>horizon:signals</i>
+                       │
+                  SUBSCRIBE
+                       ▼
+<b>reasoner</b> ──▶ <i>ollama</i>  <s>AHP + ฉากทัศน์</s>  ──▶ <u>postgres</u>
+     │
+     ├──▶ Telegram / LINE
+     └──▶ <em>POST /api/v1/signals/inbound</em>   <s>ออกไปนอก stack</s>
+
+<b>api</b> :8300 ◀──proxy /api── <b>ui</b> :8301</pre>
+        </div>
+
+        <div class="bridge">
+          <div class="bridge-line">
+            <span class="dir out">▼ ขาออก</span>
+            <code>POST /api/v1/signals/inbound</code>
+            <span class="hdr">X-API-Key: OSINT_DESK_API_KEY</span>
+          </div>
+          <div class="bridge-line">
+            <span class="dir back">▲ ขากลับ</span>
+            <code>POST /api/v1/verdicts</code>
+            <span class="hdr">X-API-Key: HORIZON_API_KEY</span>
+          </div>
+        </div>
+
+        <div class="stackbox desk-box">
+          <div class="stackbox-hd">
+            <b>OSINT//DESK</b><span>compose project: osintdesk</span>
+          </div>
+          <pre class="dia">
+<b>api</b> :8000 ── modules/<i>signals</i> ──▶ <u>postgres</u>  <s>ตาราง external_signals</s>
+                      │
+                      └──accept──▶ modules/<i>investigation</i>  <s>เปิดเป็น case + evidence</s>
+
+<b>worker-intel</b> ◀──celery <i>intel</i> queue── signals.send_verdict  <s>ส่งผลตัดสินกลับ</s>
+
+<b>frontend</b> :80  ·  neo4j  ·  meilisearch  ·  minio  ·  spiderfoot  ·  searxng …</pre>
+        </div>
+
+        <div class="flow-note">
+          <span>▸</span>
+          <span
+            >ลูกศรภายในกรอบคือการเรียกภายใน stack เดียวกัน ส่วนตรงกลางคือ HTTP ข้าม stack —
+            มีแค่สองเส้น และทั้งคู่ทนต่อการที่ปลายทางล่มได้</span
+          >
+        </div>
+      </section>
+
+      <!-- ─────────────────────────────────────────── -->
+      <section>
+        <h2><span class="n">10</span> Service แต่ละตัวทำอะไร</h2>
+        <p class="lead">ฝั่ง Horizon มี 9 container — 5 ตัวเป็นโค้ดของเรา ใช้ image เดียวกันหมด</p>
+
+        <div class="svcs">
+          <div class="svc app">
+            <div class="n">poller</div>
+            <div class="r">APScheduler ดึง RSS/SearXNG ทุก 15 นาที เขียนลง Postgres แล้ว push id เข้าคิว</div>
+          </div>
+          <div class="svc app">
+            <div class="n">worker</div>
+            <div class="r">กิน id จากคิว → gate → LLM สกัด → dedup 2 ชั้น → เขียน Postgres + Qdrant</div>
+          </div>
+          <div class="svc app">
+            <div class="n">batch</div>
+            <div class="r">ทุก 3 ชม. รัน clustering → trend scoring → weak signal แล้ว publish สัญญาณ</div>
+          </div>
+          <div class="svc app">
+            <div class="n">reasoner</div>
+            <div class="r">นอนรอบน pub/sub ตื่นเมื่อมีสัญญาณ → AHP → ฉากทัศน์ → แจ้งเตือน → ส่ง webhook</div>
+          </div>
+          <div class="svc app">
+            <div class="n">api :8300</div>
+            <div class="r">FastAPI — API ของแดชบอร์ด, รับ verdict ขาเข้า, ส่งออกคลังข้อมูล JSONL</div>
+          </div>
+          <div class="svc app">
+            <div class="n">ui :8301</div>
+            <div class="r">React + Vite ผ่าน nginx และ proxy <code>/api</code> ไปที่ api ให้เป็น same-origin</div>
+          </div>
+          <div class="svc infra">
+            <div class="n">postgres :5433</div>
+            <div class="r">แหล่งความจริงหลัก 11 ตาราง ทุกอย่างที่สำคัญอยู่ที่นี่</div>
+          </div>
+          <div class="svc infra">
+            <div class="n">redis :6380</div>
+            <div class="r">คิวงาน (list) + ช่องประกาศสัญญาณ (pub/sub) + ดัชนี MinHash ของ dedup ชั้นแรก</div>
+          </div>
+          <div class="svc infra">
+            <div class="n">qdrant :6343</div>
+            <div class="r">เวกเตอร์ 1024 มิติ 2 collection: เหตุการณ์ และ centroid ของคลัสเตอร์</div>
+          </div>
+        </div>
+
+        <p style="margin-top: 22px">
+          poller / worker / batch / reasoner / api ใช้ <b>image เดียวกัน</b>
+          ต่างกันแค่คำสั่งที่รัน — build ครั้งเดียว deploy ได้ทุกตัว และไม่มีทางที่บาง service
+          จะใช้โค้ดคนละเวอร์ชันกัน
+        </p>
+      </section>
+
+      <!-- ─────────────────────────────────────────── -->
+      <section>
+        <h2><span class="n">11</span> ทำไมต้องมีที่เก็บข้อมูลสามที่</h2>
+        <p class="lead">แต่ละตัวตอบคำถามคนละแบบ ยัดรวมกันได้แต่จะช้าหรือทำไม่ได้เลย</p>
+
+        <table>
+          <thead>
+            <tr><th style="width: 130px">ที่เก็บ</th><th>ตอบคำถามแบบไหน</th><th style="width: 220px">ถ้าไม่มีจะเป็นอย่างไร</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>PostgreSQL</td>
+              <td>"เหตุการณ์นี้มาจากข่าวชิ้นไหน คลัสเตอร์นี้มีสมาชิกกี่ตัว คะแนนย้อนหลัง 28 วันเป็นอย่างไร" — ความสัมพันธ์และประวัติ</td>
+              <td>ไม่มีอะไรตรวจสอบย้อนกลับได้</td>
+            </tr>
+            <tr>
+              <td>Qdrant</td>
+              <td>"มีเหตุการณ์ไหนที่<em>ความหมาย</em>ใกล้เคียงกับอันนี้บ้าง" — ค้นด้วยเวกเตอร์ 1024 มิติ</td>
+              <td>dedup ชั้นที่สองและการหาความแปลกใหม่ทำไม่ได้</td>
+            </tr>
+            <tr>
+              <td>Redis</td>
+              <td>"งานถัดไปคืออะไร" และ "มีสัญญาณใหม่ไหม" — คิวและการประกาศ ต้องเร็วระดับมิลลิวินาที</td>
+              <td>poller กับ worker จะต้องผูกติดกัน ขยายแยกกันไม่ได้</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="note" style="margin-top: 18px">
+          <b>ข้อมูลที่ทิ้งได้กับทิ้งไม่ได้:</b> Postgres ทิ้งไม่ได้ ส่วน Redis และ Qdrant
+          สร้างใหม่จาก Postgres ได้ทั้งคู่ (บทความต้นฉบับยังอยู่ครบ) —
+          ระหว่างพัฒนาเคยล้างทั้งสองตัวแล้วประมวลผลใหม่ 201 บทความ ใช้เวลา ~28 นาที ไม่เสียข้อมูล
+        </div>
+      </section>
+
+      <!-- ─────────────────────────────────────────── -->
+      <section>
+        <h2><span class="n">12</span> สัญญาระหว่างสองระบบ</h2>
+        <p class="lead">
+          ไฟล์ JSON Schema ใน <code>contracts/</code> คือแหล่งความจริงร่วม — คัดลอกไว้ทั้งสอง repo
+          และมีเทสต์ทั้งสองฝั่งตรวจว่าโครงสร้างยังตรงกัน
+        </p>
+
+        <div class="card" style="margin-bottom: 16px">
+          <p style="margin: 0 0 4px">
+            <b style="color: var(--cyan)">ขาออก</b> — Horizon แจ้งสัญญาณไป OSINT//DESK
+          </p>
+          <p style="color: var(--text-2); font-size: 14px; margin: 0">
+            <code>POST /api/v1/signals/inbound</code> · คาดหวัง <code>202</code> พร้อม
+            <code>osint_signal_id</code> · <b>idempotent ด้วย signal_id</b>
+          </p>
+          <pre class="json">{
+  <span class="k">"signal_id"</span>: <span class="s">"9d149615-295e-44c7-9823-526b31bcb997"</span>,   <span class="c">// = dispatches.id</span>
+  <span class="k">"signal_type"</span>: <span class="s">"trend_breakout"</span>,   <span class="c">// หรือ weak_signal</span>
+  <span class="k">"title"</span>: <span class="s">"ณัฐพงษ์ เรืองปัญญาวุฒิ ลงพื้นที่ อ.แม่อาย…"</span>,
+  <span class="k">"trend_score"</span>: <span class="n">3.2</span>,
+  <span class="k">"categories"</span>: [<span class="s">"เศรษฐกิจ"</span>, <span class="s">"สังคม"</span>, <span class="s">"การเมือง"</span>],
+  <span class="k">"top_events"</span>: [{                     <span class="c">// สูงสุด 10 เรียงตามความน่าเชื่อถือ</span>
+    <span class="k">"summary"</span>: <span class="s">"ก.ล.ต. กล่าวโทษบริษัท Bitkub…"</span>,
+    <span class="k">"url"</span>: <span class="s">"https://www.bbc.com/thai/articles/…"</span>,
+    <span class="k">"source_name"</span>: <span class="s">"BBC Thai"</span>,
+    <span class="k">"credibility_weight"</span>: <span class="n">0.9</span>,
+    <span class="k">"event_time"</span>: <span class="s">"2023-07-22T17:00:00+00:00"</span>
+  }],
+  <span class="k">"force_assessments"</span>: [{
+    <span class="k">"force"</span>: <span class="s">"การเมืองและนโยบายรัฐ"</span>,
+    <span class="k">"impact"</span>: <span class="n">0.794</span>, <span class="k">"uncertainty"</span>: <span class="n">0.2</span>
+  }],
+  <span class="k">"scenario_id"</span>: <span class="s">"bc150194-6cf0-4f90-94c5-deb1bd3f7c88"</span>
+}</pre>
+        </div>
+
+        <div class="card">
+          <p style="margin: 0 0 4px">
+            <b style="color: var(--emerald)">ขากลับ</b> — OSINT//DESK ส่งผลตัดสินกลับ Horizon
+          </p>
+          <p style="color: var(--text-2); font-size: 14px; margin: 0">
+            <code>POST /api/v1/verdicts</code> · <code>200</code> · key ผิด
+            <code>401</code> · ไม่รู้จัก signal <code>404</code>
+          </p>
+          <pre class="json">{
+  <span class="k">"signal_id"</span>: <span class="s">"9d149615-…"</span>,        <span class="c">// อ้างอิงกลับไปที่สัญญาณเดิม</span>
+  <span class="k">"osint_signal_id"</span>: <span class="s">"ext-5f8875c3"</span>,
+  <span class="k">"verdict"</span>: <span class="s">"true_signal"</span>,        <span class="c">// | false_signal | inconclusive</span>
+  <span class="k">"analyst_note"</span>: <span class="s">"ยืนยันจากแหล่งข่าวในพื้นที่"</span>,
+  <span class="k">"closed_at"</span>: <span class="s">"2026-08-22T09:00:00+00:00"</span>
+}</pre>
+        </div>
+
+        <p style="margin-top: 20px">
+          <b>การส่งซ้ำเมื่อปลายทางล่ม</b> — ทั้งสองทิศใช้ตารางเดียวกัน:
+          <code class="mono">30 วินาที → 2 นาที → 10 นาที → 1 ชั่วโมง</code> แล้วยอมแพ้
+          รวมกว่าหนึ่งชั่วโมง จึงเก็บสถานะไว้ใน<b>ฐานข้อมูล</b>ไม่ใช่ในหน่วยความจำ —
+          restart ระหว่างทางแล้วทำต่อได้ ไม่ใช่หายไปเงียบ ๆ
+        </p>
+        <p>
+          และไม่ใช่ทุก error ที่ควรส่งซ้ำ: <code>5xx / 408 / 425 / 429</code> ส่งซ้ำ
+          ส่วน <code>4xx</code> อื่นแปลว่าปลายทางปฏิเสธเนื้อหา การส่ง body เดิมซ้ำอีก 4 รอบ
+          ก็แค่โดนปฏิเสธซ้ำอีก 4 ครั้ง จึงเลิกทันที
+        </p>
+      </section>
+
+      <!-- ─────────────────────────────────────────── -->
+      <section>
+        <h2><span class="n">13</span> อะไรพังแล้วเกิดอะไรขึ้น</h2>
+        <p class="lead">ระบบถูกออกแบบให้แต่ละส่วนล้มได้โดยไม่ลากส่วนอื่นลงไปด้วย</p>
+
+        <table>
+          <thead>
+            <tr><th style="width: 190px">ส่วนที่ล่ม</th><th>ผลกระทบ</th><th style="width: 150px">กู้คืนอย่างไร</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>OSINT//DESK</td>
+              <td>Horizon ทำงานต่อครบทุกขั้น สัญญาณค้างสถานะ <code>pending</code> และถูกส่งซ้ำตามตาราง การแจ้งเตือน Telegram ยังออกปกติ</td>
+              <td>อัตโนมัติ</td>
+            </tr>
+            <tr>
+              <td>Horizon</td>
+              <td>OSINT//DESK ไม่ได้รับสัญญาณใหม่ แต่คดีที่มีอยู่ทำงานต่อได้หมด ผลตัดสินที่ปิดไปจะค้างรอส่งกลับ</td>
+              <td>อัตโนมัติ</td>
+            </tr>
+            <tr>
+              <td>Ollama (LLM)</td>
+              <td>บทความถูกทำเครื่องหมาย <code>failed</code> ทีละชิ้น worker ไม่ตาย ขั้นที่ 8 (สถิติ) ยังทำงานได้เพราะไม่ใช้ AI</td>
+              <td>re-queue บทความ</td>
+            </tr>
+            <tr>
+              <td>Redis</td>
+              <td>คิวหาย แต่บทความยังอยู่ใน Postgres สถานะ <code>queued</code> ครบ</td>
+              <td>worker re-queue ให้เอง</td>
+            </tr>
+            <tr>
+              <td>Qdrant</td>
+              <td>dedup ชั้นสองและ clustering หยุด ชั้นแรก (MinHash) ยังจับข่าวซ้ำแบบตรงตัวได้</td>
+              <td>สร้างเวกเตอร์ใหม่</td>
+            </tr>
+            <tr>
+              <td>PostgreSQL</td>
+              <td><b style="color: var(--rose)">นี่คือจุดเดียวที่พังแล้วหยุดทั้งระบบ</b></td>
+              <td>ต้องมี backup</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="note" style="margin-top: 18px">
+          หลักการที่ยึดตลอด: <b>ข่าวชิ้นเดียวพังต้องไม่ทำให้ทั้งรอบพัง</b> —
+          ทุกลูปหุ้มด้วยการดักจับข้อผิดพลาดที่บันทึกแล้วไปต่อ
+          และ batch job สามตัวแยกกัน ตัวหนึ่งล้มอีกสองตัวยังรัน
+        </div>
+      </section>
+
+      <!-- ─────────────────────────────────────────── -->
+      <section>
+        <h2><span class="n">14</span> การเฝ้าระวังตัวระบบเอง</h2>
+        <p class="lead">แต่ละ service เปิด endpoint ของตัวเอง ไม่ใช่จุดเดียวรวม</p>
+
+        <p>
+          แต่ละ service เป็นคนละ process จึงมีตัวนับของตัวเอง
+          ถ้าใช้ endpoint เดียวรวมที่ api ตัวเลขของ worker และ reasoner จะขึ้น
+          <b>ศูนย์ทั้งที่ระบบกำลังทำงานหนัก</b> — ซึ่งอันตรายกว่าไม่มีตัวเลขเลย
+        </p>
+
+        <table>
+          <thead>
+            <tr><th style="width: 150px">Endpoint</th><th>ตัวอย่างที่วัดได้จริง</th></tr>
+          </thead>
+          <tbody>
+            <tr><td class="mono">api :8300</td><td>ความลึกของคิวตอน scrape</td></tr>
+            <tr><td class="mono">poller :9101</td><td>ดึงมาแล้ว 196 บทความ · หนึ่งรอบใช้ 10.6 วินาที · แหล่งไหนดึงไม่ได้</td></tr>
+            <tr><td class="mono">worker :9102</td><td>LLM สกัด <b>17 วินาที/บทความ</b> · ฝังเวกเตอร์ 0.98 วินาที · อัตราการเจอข่าวซ้ำ · อัตราที่ LLM ล้มเหลว</td></tr>
+            <tr><td class="mono">batch :9103</td><td>clustering 1.73 วิ · trend 1.00 วิ · weak signal 3.68 วิ · จำนวนคลัสเตอร์</td></tr>
+            <tr><td class="mono">reasoner :9104</td><td>เวลาที่ใช้แยกตามขั้น · จำนวนที่คำตอบ AHP ขัดแย้งกันเอง · ผลการส่ง webhook</td></tr>
+          </tbody>
+        </table>
+
+        <p style="margin-top: 18px">
+          Service ที่ไม่มีหน้าเว็บให้เรียก (poller, worker, batch, reasoner)
+          ใช้ endpoint นี้เป็นตัวตรวจสุขภาพไปในตัว — ถ้า event loop ค้าง มันจะหยุดตอบ
+          และถูกรายงานว่า unhealthy แทนที่จะดูเหมือนว่างงานอยู่เฉย ๆ
+        </p>
+      </section>
+
+      <!-- ─────────────────────────────────────────── -->
+      <section>
+        <h2><span class="n">15</span> ทรัพยากรที่ใช้จริง</h2>
+        <p class="lead">ตัวเลขจากการรัน ไม่ใช่การประมาณ</p>
+
+        <div class="grid2">
+          <div class="card">
+            <p style="margin: 0 0 8px"><b>GPU (เครื่องที่ใช้ร่วมกัน)</b></p>
+            <p style="color: var(--text-2); font-size: 14px; margin: 0">
+              โมเดลสองตัวค้างใน VRAM พร้อมกัน: <code>bge-m3</code> 0.7 GB (ฝังเวกเตอร์) +
+              <code>gemma4:12b</code> 8.4 GB (อ่านและเขียน) = <b>9.1 จาก 24 GB</b>
+              <br /><br />
+              ใช้โมเดลตัวเดียวกับที่ OSINT//DESK ใช้อยู่แล้ว ทั้งสองระบบจึงแชร์สำเนาเดียวกัน
+              ไม่ต้องสลับโมเดลเข้าออก
+            </p>
+          </div>
+          <div class="card">
+            <p style="margin: 0 0 8px"><b>ปริมาณงาน</b></p>
+            <p style="color: var(--text-2); font-size: 14px; margin: 0">
+              worker ประมวลผลได้ <b>~7 บทความ/นาที</b> (ทำพร้อมกัน 2 ชิ้น)
+              <br /><br />
+              ขั้นคิดเชิงลึกใช้ LLM ~<b>96 ครั้งต่อสัญญาณ</b> ราว 12 นาที
+              จึงต้องมีเกณฑ์กั้นและมีช่วงพักไม่ให้คิดซ้ำเรื่องเดิมภายใน 6 ชั่วโมง
+            </p>
+          </div>
+        </div>
+
+        <p style="margin-top: 20px">
+          พอร์ตของสอง stack เลี่ยงกันไว้แล้ว รันบนเครื่องเดียวกันได้:
+        </p>
+        <table>
+          <thead>
+            <tr><th style="width: 180px"></th><th>Horizon</th><th>OSINT//DESK</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>compose project</td><td class="mono">horizon</td><td class="mono">osintdesk</td></tr>
+            <tr><td>API</td><td class="mono">8300</td><td class="mono">8000</td></tr>
+            <tr><td>หน้าเว็บ</td><td class="mono">8301</td><td class="mono">80 / 443</td></tr>
+            <tr><td>PostgreSQL</td><td class="mono">5433</td><td>ไม่เปิดออกนอก</td></tr>
+            <tr><td>Redis</td><td class="mono">6380</td><td>ไม่เปิดออกนอก</td></tr>
+            <tr><td>Vector / Graph</td><td class="mono">6343 (Qdrant)</td><td class="mono">7474 · 7687 (Neo4j)</td></tr>
+          </tbody>
+        </table>
       </section>
 
       <footer>
