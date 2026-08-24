@@ -877,3 +877,55 @@ async def review_entity(entity_id: uuid.UUID, payload: EntityReview, session: Se
         extra={"entity_id": str(entity_id), "decision": payload.decision},
     )
     return _entity_json(entity, [])
+
+
+@app.get("/api/v1/clusters/{cluster_id}/entities")
+async def cluster_entities(cluster_id: uuid.UUID, session: SessionDep, limit: int = 50):
+    """Who and what a cluster is about, resolved and counted.
+
+    This is the handover that makes cross-case memory possible on the DESK side.
+    An analyst accepting a signal gets not just the story but the cast, already
+    merged across spellings and — where one honestly fits — carrying a Wikidata
+    identifier that means the same thing in both systems.
+
+    Generic nouns are excluded: "ตำรวจ" appears in half the crime stories and
+    would link every case to every other one.
+    """
+    if await session.get(Cluster, cluster_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "cluster not found")
+
+    rows = (
+        await session.execute(
+            select(
+                Entity,
+                func.count(func.distinct(EventEntity.event_id)).label("events"),
+            )
+            .join(EventEntity, EventEntity.entity_id == Entity.id)
+            .join(Event, Event.id == EventEntity.event_id)
+            .where(Event.cluster_id == cluster_id)
+            .where(Entity.entity_type != "generic")
+            # A rejected merge is one an analyst already said was wrong; passing
+            # it on would re-import the mistake into a case file.
+            .where(Entity.review_status != "rejected")
+            .group_by(Entity.id)
+            .order_by(func.count(func.distinct(EventEntity.event_id)).desc())
+            .limit(min(limit, 200))
+        )
+    ).all()
+
+    return {
+        "cluster_id": str(cluster_id),
+        "entities": [
+            {
+                "entity_id": str(entity.id),
+                "canonical_name": entity.canonical_name,
+                "entity_type": entity.entity_type,
+                "qid": entity.qid,
+                "events": events,
+                # So the DESK side can show that a name is provisional rather
+                # than presenting an unreviewed merge as established fact.
+                "review_status": entity.review_status,
+            }
+            for entity, events in rows
+        ],
+    }
