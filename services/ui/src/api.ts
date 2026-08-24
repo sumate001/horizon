@@ -66,6 +66,10 @@ export type EntityRow = {
   entity_type: "person" | "org" | "place" | "team" | "generic" | "unknown";
   aliases: string[];
   qid: string | null;
+  qid_status: "pending" | "linked" | "no_match" | "unavailable";
+  qid_confidence: number | null;
+  /** The model's prose about its choice — the Q-number is the checked part. */
+  qid_reason: string | null;
   confidence: number;
   review_status: "auto" | "needs_review" | "confirmed" | "rejected";
   /** Why it was queued, in Thai. Null when nobody needs to look. */
@@ -81,6 +85,7 @@ export type EntityRow = {
 export type EntityCounts = {
   review: Record<string, number>;
   types: Record<string, number>;
+  wikidata: Record<string, number>;
 };
 
 class ApiError extends Error {

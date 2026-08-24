@@ -121,13 +121,16 @@ async def test_filtering_by_verdict_excludes_everything_else(
 async def test_ordering_by_score_puts_the_top_story_first(
     session: AsyncSession, client: AsyncClient
 ):
-    low, high = event("PASS", 1.0), event("PRIORITY", 9.99)
-    session.add_all([low, high])
+    session.add_all([event("PASS", 1.0), event("PRIORITY", 9.99)])
     await session.flush()
 
-    rows = (await client.get("/api/v1/events?order=score&limit=200")).json()
+    # The contract is that the page comes back sorted, which holds whatever else
+    # is in the table. Earlier versions asserted on where two injected rows
+    # landed; both broke as real events accumulated and pushed a 9.99 off the
+    # first page — the ordering was always right, the assumption about the data
+    # was not.
+    rows = (await client.get("/api/v1/events?order=score&limit=50")).json()
 
-    # Relative order only: the table already holds real events scoring 10.0,
-    # so asserting on rows[0] would test the seed data, not the ordering.
-    order = [row["id"] for row in rows]
-    assert order.index(str(high.id)) < order.index(str(low.id))
+    scores = [row["triage"]["total"] for row in rows]
+    assert scores == sorted(scores, key=lambda s: (s is not None, s), reverse=True)
+    assert len(rows) > 1, "ordering is untested against a single row"

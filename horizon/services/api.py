@@ -742,6 +742,12 @@ def _entity_json(entity: Entity, surfaces: list[str]) -> dict:
         "entity_type": entity.entity_type,
         "aliases": entity.aliases,
         "qid": entity.qid,
+        "qid_status": entity.qid_status,
+        "qid_confidence": entity.qid_confidence,
+        # The model's own narrative. Useful when reviewing, but it is prose the
+        # model wrote about its choice — the Q-number is the part that was
+        # checked against Wikidata, and the two can disagree.
+        "qid_reason": entity.qid_reason,
         "confidence": entity.confidence,
         "review_status": entity.review_status,
         "risk": entity.risk,
@@ -776,6 +782,7 @@ async def list_entities(
     session: SessionDep,
     status: str | None = None,
     entity_type: str | None = None,
+    qid_status: str | None = None,
     limit: int = 100,
     offset: int = 0,
 ):
@@ -786,6 +793,8 @@ async def list_entities(
         query = query.where(Entity.review_status == status)
     if entity_type:
         query = query.where(Entity.entity_type == entity_type)
+    if qid_status:
+        query = query.where(Entity.qid_status == qid_status)
     entities = list(
         (
             await session.execute(
@@ -801,6 +810,7 @@ async def list_entities(
 
 @app.get("/api/v1/entities/counts")
 async def entity_counts(session: SessionDep):
+    """Review backlog, type mix, and how far Wikidata linking has got."""
     rows = (
         await session.execute(
             select(Entity.review_status, func.count().label("n")).group_by(Entity.review_status)
@@ -813,7 +823,16 @@ async def entity_counts(session: SessionDep):
             select(Entity.entity_type, func.count().label("n")).group_by(Entity.entity_type)
         )
     ).all()
-    return {"review": counts, "types": {row.entity_type: row.n for row in by_type}}
+    by_qid = (
+        await session.execute(
+            select(Entity.qid_status, func.count().label("n")).group_by(Entity.qid_status)
+        )
+    ).all()
+    return {
+        "review": counts,
+        "types": {row.entity_type: row.n for row in by_type},
+        "wikidata": {row.qid_status: row.n for row in by_qid},
+    }
 
 
 class EntityReview(BaseModel):

@@ -47,6 +47,10 @@ ENTITY_TYPES = ("person", "org", "place", "team", "generic", "unknown")
 #: auto — the pipeline decided and was confident. needs_review — it was not, and
 #: nobody has looked yet. confirmed/rejected — a human has.
 ENTITY_REVIEW_STATUSES = ("auto", "needs_review", "confirmed", "rejected")
+#: pending — not looked up yet. linked — has a Q-number. no_match — Wikidata was
+#: asked and had nothing, which is the normal answer for two thirds of the long
+#: tail. unavailable — the API could not be reached, so it is worth retrying.
+QID_STATUSES = ("pending", "linked", "no_match", "unavailable")
 
 
 def _check(column: str, allowed: tuple[str, ...], name: str) -> CheckConstraint:
@@ -356,7 +360,9 @@ class Entity(Base):
         _check("review_status", ENTITY_REVIEW_STATUSES, "ck_entities_review_status"),
         Index("ix_entities_review_status", "review_status"),
         Index("ix_entities_type", "entity_type"),
+        _check("qid_status", QID_STATUSES, "ck_entities_qid_status"),
         Index("ix_entities_qid", "qid", unique=True, postgresql_where=text("qid IS NOT NULL")),
+        Index("ix_entities_qid_status", "qid_status"),
         Index("ix_entities_aliases", "aliases", postgresql_using="gin"),
     )
 
@@ -370,6 +376,14 @@ class Entity(Base):
     #: fail at runtime, quietly creating a new entity for every mention.
     aliases: Mapped[list[str]] = mapped_column(PG_ARRAY(Text), nullable=False, default=list)
     qid: Mapped[str | None] = mapped_column(String(32))
+    #: Distinguishes "no Wikidata item exists" from "we have not asked yet".
+    #: Without it every ingest would re-query the same unknown village headman
+    #: forever, which is both slow and rude to a free API.
+    qid_status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    qid_confidence: Mapped[float | None] = mapped_column(Float)
+    #: Why the linker chose this item, or why it refused to. Shown to reviewers.
+    qid_reason: Mapped[str | None] = mapped_column(Text)
+    qid_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     review_status: Mapped[str] = mapped_column(String(16), nullable=False, default="auto")
     decided_by: Mapped[str] = mapped_column(String(16), nullable=False, default="rules")

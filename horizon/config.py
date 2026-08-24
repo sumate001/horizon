@@ -41,6 +41,15 @@ class Settings(BaseSettings):
     #: Merging two people wrongly writes false history into a case file, so this
     #: is set to be cautious rather than to keep the queue quiet.
     entity_review_threshold: float = 0.75
+    #: Wikimedia asks automated clients to identify themselves with a contact
+    #: address; an anonymous agent gets rate limited harder or blocked.
+    wikidata_user_agent: str = "horizon-newsroom/0.1 (https://github.com/; contact via repo)"
+    wikidata_enabled: bool = False
+    #: Below this the Q-number is recorded but the entity goes to the review
+    #: queue. A wrong identifier is permanent and invisible — it travels to
+    #: OSINT//DESK and to every export — so this sits higher than the threshold
+    #: for merging names.
+    wikidata_min_confidence: float = 0.8
 
     # ── Thresholds ───────────────────────────────────────────────────────────
     dedup_minhash_t: float = 0.85

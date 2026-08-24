@@ -63,7 +63,23 @@ function Row({ entity, onDone }: { entity: EntityRow; onDone: () => void }) {
         <span className={`chip ${TYPE_TONE[entity.entity_type]}`}>
           {TYPE_LABEL[entity.entity_type] ?? entity.entity_type}
         </span>
-        {entity.qid && <span className="chip bg-blue-500/15 font-mono text-blue-300">{entity.qid}</span>}
+        {entity.qid ? (
+          <a
+            href={`https://www.wikidata.org/wiki/${entity.qid}`}
+            target="_blank"
+            rel="noreferrer"
+            title={entity.qid_reason ?? undefined}
+            className="chip bg-blue-500/15 font-mono text-blue-300 hover:bg-blue-500/25"
+          >
+            {entity.qid}
+          </a>
+        ) : (
+          entity.qid_status === "no_match" && (
+            <span className="chip bg-slate-500/10 text-[11px] text-slate-600">
+              ไม่มีใน Wikidata
+            </span>
+          )
+        )}
         <span className="ml-auto font-mono text-[11px] text-slate-500">
           {entity.mention_count} ครั้ง · {fmtAgo(entity.last_seen)}
         </span>
@@ -126,6 +142,7 @@ export default function Entities() {
   const { data, error, loading, reload } = usePoll(() => api.entities(tab), 0, [tab]);
 
   const review = counts.data?.review ?? {};
+  const wikidata = counts.data?.wikidata ?? {};
 
   return (
     <div className="space-y-5">
@@ -147,6 +164,27 @@ export default function Entities() {
         <Stat label="ระบบตัดสินเอง" value={review.auto ?? "—"} />
         <Stat label="ยืนยันแล้ว" value={review.confirmed ?? "—"} tone="text-emerald-300" />
         <Stat label="ทั้งหมด" value={review.ALL ?? "—"} />
+      </section>
+
+      {/* Coverage is the honest number here: measured on this corpus Wikidata
+          knows 75% of the names that repeat and a third of the ones seen once,
+          so "ยังไม่ได้ตรวจ" falling to zero is the goal, not "ผูกแล้ว" rising. */}
+      <section className="card flex flex-wrap items-center gap-x-6 gap-y-1 px-5 py-3 text-[11px]">
+        <span className="text-slate-500">การผูกกับ Wikidata</span>
+        <span className="text-blue-300">
+          ผูกแล้ว <span className="font-mono">{wikidata.linked ?? 0}</span>
+        </span>
+        <span className="text-slate-500">
+          ไม่มีในคลัง <span className="font-mono">{wikidata.no_match ?? 0}</span>
+        </span>
+        <span className={wikidata.pending ? "text-amber-300" : "text-slate-600"}>
+          ยังไม่ได้ตรวจ <span className="font-mono">{wikidata.pending ?? 0}</span>
+        </span>
+        {!!wikidata.unavailable && (
+          <span className="text-red-300">
+            ต่อ Wikidata ไม่ได้ <span className="font-mono">{wikidata.unavailable}</span>
+          </span>
+        )}
       </section>
 
       <div className="flex flex-wrap gap-1">

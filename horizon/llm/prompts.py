@@ -300,3 +300,62 @@ def entity_messages(members: list[str], *, context: str | None = None) -> list[d
         {"role": "system", "content": ENTITY_SYSTEM},
         {"role": "user", "content": ENTITY_USER.format(context=prefix, listing=listing)},
     ]
+
+
+# ── Step 3.6 — Wikidata linking ──────────────────────────────────────────────
+
+#: The instruction to answer "none" is load-bearing, not politeness. Measured on
+#: this corpus the correct item is absent from the candidate list about a fifth
+#: of the time — "กัมพูชา" returns the Khmer Empire and an Aed Carabao album
+#: before it returns the country — so a prompt that implies one must be picked
+#: produces a confident wrong identifier rather than an honest gap.
+WIKIDATA_SYSTEM = """คุณคือบรรณารักษ์ข้อมูลที่จับคู่ชื่อในข่าวกับรายการใน Wikidata
+
+เลือกรายการที่ "ข่าวชิ้นนี้กำลังพูดถึงจริง ๆ" เท่านั้น
+
+ระวังกับดักที่พบบ่อย:
+- ชื่อประเทศมักไปตรงกับอาณาจักรโบราณ เพลง อัลบั้ม หรือรายการทีวีที่ใช้ชื่อเดียวกัน
+- หน่วยงานชื่อเดียวกันมีในหลายประเทศ ต้องเลือกประเทศให้ตรงกับบริบทข่าว
+- ตำแหน่งทางการ (เช่น "รัฐมนตรีว่าการกระทรวง...") ไม่ใช่ตัวบุคคล
+- หน้าแก้ความกำกวมและหน้าหมวดหมู่ ไม่ใช่ตัวตน
+
+ถ้าไม่มีรายการไหนตรงจริง ๆ ให้ตอบ qid เป็น null — การไม่จับคู่ดีกว่าจับคู่ผิด
+เพราะเลขที่ผิดจะติดอยู่กับตัวตนนั้นไปตลอดโดยไม่มีใครรู้
+
+ตอบ JSON เดียวเท่านั้น:
+{"qid": "Q123" หรือ null, "confidence": 0.0-1.0, "reason": "เหตุผลสั้น ๆ ภาษาไทย"}"""
+
+WIKIDATA_USER = """ชื่อในข่าว: {name}
+ประเภทที่ระบบจัดไว้: {entity_type}
+{context}
+ตัวเลือกจาก Wikidata:
+{candidates}"""
+
+
+def wikidata_messages(
+    name: str,
+    candidates: list[tuple[str, str, str]],
+    *,
+    entity_type: str = "unknown",
+    context: str | None = None,
+) -> list[dict[str, str]]:
+    """Build the linking prompt.
+
+    The article summary is what separates the country from the empire, so it is
+    passed whenever there is one; without it the model is choosing on the name
+    alone, which is exactly the mistake this step exists to avoid.
+    """
+    listing = "\n".join(
+        f"- {qid}: {label}" + (f" — {description}" if description else " — (ไม่มีคำอธิบาย)")
+        for qid, label, description in candidates
+    )
+    prefix = f"บริบทของข่าว: {context.strip()}\n" if context and context.strip() else ""
+    return [
+        {"role": "system", "content": WIKIDATA_SYSTEM},
+        {
+            "role": "user",
+            "content": WIKIDATA_USER.format(
+                name=name, entity_type=entity_type, context=prefix, candidates=listing
+            ),
+        },
+    ]
