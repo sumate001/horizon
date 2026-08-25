@@ -390,13 +390,16 @@ class VerdictIn(BaseModel):
 
     signal_id: uuid.UUID
     osint_signal_id: str
-    verdict: Literal["true_signal", "false_signal", "inconclusive"]
+    verdict: Literal["true_signal", "false_signal", "inconclusive", "off_topic"]
     analyst_note: str | None = None
     closed_at: datetime
 
 
 #: Only a decided verdict moves the weak signal on; "inconclusive" leaves it
 #: dispatched, because an analyst who could not tell has not told us anything.
+#: "off_topic" is absent for a different reason: it says nothing about whether
+#: the detection was right, only that the newsroom does not cover the subject,
+#: so it must not mark the signal verified either way.
 VERDICT_TO_STATUS = {"true_signal": "verified_true", "false_signal": "verified_false"}
 
 

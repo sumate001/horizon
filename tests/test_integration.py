@@ -252,3 +252,19 @@ def test_a_decided_verdict_moves_the_weak_signal_on():
 def test_inconclusive_leaves_the_weak_signal_where_it_was():
     """An analyst who could not tell has not told us anything to learn from."""
     assert "inconclusive" not in VERDICT_TO_STATUS
+
+
+def test_off_topic_does_not_move_a_weak_signal_either_way():
+    """It is not a third grade of wrongness — it is not about wrongness at all.
+
+    OSINT//DESK reported every dismissal as `false_signal`, so an editor
+    clearing stories that were simply off the newsroom's beat would have marked
+    those detections verified-false and fed them to threshold tuning. `off_topic`
+    carries the relevance answer without touching the accuracy one.
+    """
+    from horizon.models import ACCURACY_VERDICTS, VERDICTS
+    from horizon.services.api import VERDICT_TO_STATUS
+
+    assert "off_topic" in VERDICTS
+    assert "off_topic" not in ACCURACY_VERDICTS
+    assert "off_topic" not in VERDICT_TO_STATUS

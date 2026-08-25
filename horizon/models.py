@@ -42,7 +42,15 @@ WEAK_SIGNAL_STATUSES = (
 PESTEL_DIMENSIONS = ("P", "E", "S", "T", "E2", "L")
 SIGNAL_TYPES = ("weak_signal", "trend_breakout")
 DISPATCH_STATUSES = ("pending", "delivered", "failed", "disabled")
-VERDICTS = ("true_signal", "false_signal", "inconclusive")
+#: `off_topic` is not a fourth grade of wrongness. It says the detection was
+#: right and the story simply is not on this newsroom's beat, which is feedback
+#: about relevance rather than accuracy. Anything tuning detection thresholds
+#: must exclude it: OSINT//DESK used to report every dismissal as false_signal,
+#: so an editor clearing off-beat stories would have trained the radar to
+#: suppress the detections that were working.
+VERDICTS = ("true_signal", "false_signal", "inconclusive", "off_topic")
+#: The subset that says anything about whether detection was correct.
+ACCURACY_VERDICTS = ("true_signal", "false_signal", "inconclusive")
 ENTITY_TYPES = ("person", "org", "place", "team", "generic", "unknown")
 #: auto — the pipeline decided and was confident. needs_review — it was not, and
 #: nobody has looked yet. confirmed/rejected — a human has.

@@ -18,7 +18,8 @@
     },
     "verdict": {
       "type": "string",
-      "enum": ["true_signal", "false_signal", "inconclusive"]
+      "enum": ["true_signal", "false_signal", "inconclusive", "off_topic"],
+      "description": "off_topic means the detection was correct and the story was simply not something this newsroom follows. It is feedback about relevance, not accuracy, and must never be counted as a detection error \u2014 dismissing an off-beat story used to be reported as false_signal, which would have taught the radar to suppress exactly the detections that were working."
     },
     "analyst_note": { "type": ["string", "null"] },
     "closed_at": { "type": "string", "format": "date-time" }
