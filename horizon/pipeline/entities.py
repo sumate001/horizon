@@ -37,9 +37,12 @@ signals are gathered instead, none of which asks the model to introspect:
               as" is symmetric, so an answer that flips was never held firmly.
   counter     the model must write the strongest case *against* before it
               decides — first in the JSON, because generation is left to right.
-  hedging     words in its own prose that mark it overriding evidence it just
-              acknowledged. On the one wrong merge found in testing, the number
-              said 0.90 and the prose said "แม้ระบบจะจัดประเภทเป็นบุคคล".
+  hedging     words in `reason` — its decision sentence — that mark it
+              overriding evidence it just acknowledged. Both wrong merges in
+              testing were carried by this: "แม้จะเป็นตำแหน่ง แต่…" at a
+              self-reported 0.90, and "แม้ในข่าวจะระบุว่าเป็นของสิงคโปร์" at 1.00.
+              `counter` is excluded from the scan on purpose — doubt is that
+              field's whole job.
 
 The parenthetical still gets classified, but only to build search keys, and the
 cost of being wrong is now a candidate the model declines rather than a merge
@@ -678,16 +681,26 @@ async def _surface_forms_of(session, entity_ids: list) -> dict:
 #: declining to commit. Contrast words are deliberately absent: "ชื่อใหม่คือบุคคล
 #: **แต่** ตัวเลือกคือองค์กร" is a confident refusal, not a hedge, and treating
 #: "แต่" as doubt would flag the clearest answers in the set.
+#:
+#: Scanned over `reason` only, never `counter`. `counter` is the field where
+#: doubt is *supposed* to live — the model is asked there for the strongest case
+#: against — so hedge words in it mean the instruction was followed, not that the
+#: answer is shaky. Measured both ways: including it caught nothing extra (both
+#: errors in the hard set were carried by `reason` alone) while adding a class of
+#: false alarm that exists by construction.
 HEDGES = (
     "แม้", "อย่างไรก็ตาม", "น่าจะ", "อาจ", "ไม่แน่ใจ", "ควรระวัง", "คาดว่า",
     "เป็นไปได้ว่า", "ไม่ชัดเจน", "however", "possibly", "unclear",
 )
 
 
-def hedged(*texts: str) -> bool:
-    """Did the model qualify its own answer in prose?"""
-    joined = " ".join(text for text in texts if text)
-    return any(marker in joined for marker in HEDGES)
+def hedged(reason: str) -> bool:
+    """Did the model qualify its own decision in prose?
+
+    Takes the decision sentence alone. Passing the counter-argument in as well
+    would ask "did it write down a doubt?", which it was instructed to do.
+    """
+    return any(marker in (reason or "") for marker in HEDGES)
 
 
 @dataclass(frozen=True)
@@ -830,7 +843,7 @@ async def choose_existing(
         reason=reason,
         counter=counter,
         agreed=agreed,
-        hedged=hedged(reason, counter),
+        hedged=hedged(reason),
     )
 
 

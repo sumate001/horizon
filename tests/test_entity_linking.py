@@ -178,6 +178,32 @@ async def test_the_article_and_the_recorded_spellings_both_reach_the_model():
     assert "ยิ่งชีพ อัชฌานนท์ (iLaw)" in sent
 
 
+async def test_writing_a_good_counter_argument_is_not_treated_as_doubt():
+    """`counter` is where doubt is supposed to live, so it is not scanned.
+
+    Scanning it would ask "did the model write down an objection?" — which is
+    the instruction — and refuse links for following it. Measured both ways:
+    including it caught nothing extra, because both errors in the hard set were
+    carried by the decision sentence alone.
+    """
+    client = _StubClient(
+        {
+            "counter": "อาจเป็นคนละคนที่บังเอิญชื่อเหมือนกัน",
+            "match": 0,
+            "confidence": 1.0,
+            "reason": "ชื่อ นามสกุล และตำแหน่งตรงกันทุกตัวอักษร",
+        }
+    )
+
+    decision = await choose_existing(
+        _resolution("อนุทิน ชาญวีรกูล", ["อนุทิน ชาญวีรกูล"]), [ANUTIN], client=client
+    )
+
+    assert "อาจ" in decision.counter
+    assert not decision.hedged
+    assert decision.is_certain
+
+
 async def test_a_place_qualifier_is_put_in_front_of_the_model_by_itself():
     """The one error no signal caught, until the qualifier got its own line.
 
