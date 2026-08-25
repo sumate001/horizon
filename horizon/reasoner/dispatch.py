@@ -52,6 +52,7 @@ async def _top_events(cluster_id: uuid.UUID | None, event_id: uuid.UUID | None) 
                 Event.summary,
                 Event.event_time,
                 Event.credibility_weight,
+                Event.location,
                 RawArticle.url,
                 Source.name.label("source_name"),
             )
@@ -74,6 +75,9 @@ async def _top_events(cluster_id: uuid.UUID | None, event_id: uuid.UUID | None) 
             "source_name": row.source_name or "",
             "credibility_weight": float(row.credibility_weight),
             "event_time": _iso(row.event_time),
+            # Extracted since the beginning and never sent: it was absent from
+            # the contract, so a place reached 80% of events and then stopped.
+            "location": row.location or None,
         }
         for row in rows
     ]

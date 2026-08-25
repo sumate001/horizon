@@ -101,6 +101,13 @@
               "null"
             ],
             "format": "date-time"
+          },
+          "location": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Where it happened, as the article said it. Horizon has extracted this since the beginning and it reached nobody: it was not in this schema, so it never travelled. Free text at whatever granularity the reporting used — อำเภอยะหา as readily as ไทย — and the receiver geocodes it."
           }
         }
       }
