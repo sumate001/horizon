@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, datetime
 
 import numpy as np
@@ -163,3 +164,70 @@ def test_low_credibility_damps_the_whole_score():
 
 def test_a_perfectly_ordinary_candidate_scores_zero():
     assert _candidate().combined_score == pytest.approx(0.0)
+
+
+# ── the gate that decides what is even eligible ──────────────────────────────
+
+
+def test_a_candidate_that_is_not_growing_is_not_a_weak_signal_however_odd():
+    """The failure this gate exists to stop, stated as a test.
+
+    A one-off story is maximally unlike a corpus of Thai political news simply
+    by being irrelevant to it, so novelty and isolation both reward it — and
+    together they are 70% of the score. Measured over 994 real candidates, 987
+    were single events and the ranking they produced was led by a woman with a
+    birthmark condition and a blood-noodle shop. "Small but growing" is the
+    definition and the growing half is not optional.
+    """
+    odd_but_static = _candidate(novelty_score=1.0, isolation_score=1.0, burst_score=0.0)
+
+    assert odd_but_static.combined_score > 0.6  # would clear any usable threshold
+    assert not odd_but_static.is_emerging
+
+
+def test_any_evidence_of_growth_is_enough_to_be_eligible():
+    """The gate asks a yes/no question; how strongly it is growing is the score's
+    job, not the gate's."""
+    assert _candidate(burst_score=0.13).is_emerging
+
+
+def test_the_threshold_is_reachable_by_a_real_candidate():
+    """Regression on the miscalibration itself, not on a number.
+
+    0.65 was unreachable: novelty tops out near 0.55 on this corpus and burst
+    near 0.13, so the best candidate in three days scored 0.364 and the detector
+    reported "nothing anomalous" every run. A threshold no real candidate can
+    reach is indistinguishable from a broken detector, so this pins the ceiling
+    the data actually has against the setting.
+    """
+    from horizon.config import get_settings
+
+    best_observed = _candidate(
+        novelty_score=0.55, isolation_score=0.79, burst_score=0.13, mean_credibility=0.9
+    )
+    assert best_observed.combined_score >= get_settings().weak_signal_t
+
+
+# ── not filing the same signal twice ─────────────────────────────────────────
+
+
+def test_a_clustered_candidate_is_identified_by_its_cluster():
+    """The batch runs on a schedule and a story keeps qualifying until it stops
+    growing, so the same signal is filed every cycle unless something says two
+    runs are talking about one story. A cluster is that identity — the story is
+    the same however many articles join it."""
+    cluster, event = uuid.uuid4(), uuid.uuid4()
+
+    assert _candidate(cluster_id=cluster, event_id=event).ref == cluster
+
+
+def test_a_noise_candidate_has_only_itself_to_be_identified_by():
+    event = uuid.uuid4()
+
+    assert _candidate(event_id=event).ref == event
+
+
+def test_a_candidate_referring_to_nothing_is_not_matched_against_anything():
+    """`None in already_open` must never be true, or one unclustered signal
+    would suppress every other."""
+    assert _candidate().ref is None

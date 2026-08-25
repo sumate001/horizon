@@ -78,7 +78,19 @@ class Settings(BaseSettings):
     max_cluster_events: int = 6000
     #: A cluster with no new events for this long goes dormant.
     cluster_dormant_days: int = 7
-    weak_signal_t: float = 0.65
+    #: Measured, not inherited. At 0.65 the detector produced nothing for three
+    #: days while reporting 994 candidates — and it was not being strict, it was
+    #: unreachable: the best candidate in the whole corpus scored 0.364, because
+    #: novelty tops out near 0.55 (bge-m3 cosine on Thai news never spans the
+    #: theoretical range) and burst is 0 for the single events that are 99% of
+    #: the field. The same miscalibration as `temporal_weight` above, from the
+    #: same cause — a constant chosen against a range the data never occupies.
+    #:
+    #: The binding filter is now "must be growing" (see batch/weak_signals.py);
+    #: this is a floor beneath it. The seven genuinely emerging candidates on
+    #: three days of data scored 0.225–0.317, so 0.20 lets them through while
+    #: still excluding a degenerate one.
+    weak_signal_t: float = 0.20
     trend_breakout_t: float = 2.5
 
     weak_novelty_w: float = 0.4

@@ -14,8 +14,23 @@ one:
 Multiplying by credibility rather than adding it is deliberate: an anomaly seen
 only in low-trust outlets should be damped, not merely scored slightly lower.
 
-Candidates at or above WEAK_SIGNAL_T become `weak_signals` rows and are
-published to `horizon:signals`.
+**A candidate must be growing before its score is even consulted.** Measured over
+994 real candidates: 987 of them were single noise events, for which Kleinberg
+has one day of counts and burst is structurally 0 — so a third of the score was
+unavailable to 99% of the field, and the two components left both measure
+"unlike the corpus" rather than "emerging". A one-off human interest story
+maximises that by being irrelevant, and the top of the ranking read: a woman with
+a birthmark condition, a Japanese father scolded by police, a blood-noodle shop
+on Ratanathibet Road.
+
+The 7 candidates with burst > 0 were, without exception, things a newsroom would
+want: a provincial election, an armed robbery by ten men, a bombing of a
+convenience store in Yaha. Lowering the threshold would have surfaced the
+oddities instead, which is why the fix is the gate and not the number — "small
+but growing" is the definition, and the growing half is not optional.
+
+Candidates that are growing and at or above WEAK_SIGNAL_T become `weak_signals`
+rows and are published to `horizon:signals`.
 """
 
 import logging
@@ -69,16 +84,59 @@ class Candidate:
         )
         return weighted * self.mean_credibility
 
+    @property
+    def ref(self) -> uuid.UUID | None:
+        """What this signal is *about*, for deciding whether it is already filed.
+
+        A small cluster is identified by the cluster: the story is the same one
+        however many articles join it. A noise event has only itself.
+        """
+        return self.cluster_id or self.event_id
+
+    @property
+    def is_emerging(self) -> bool:
+        """Is there any evidence this is growing rather than merely unusual?
+
+        The score cannot answer this on its own: novelty and isolation are 70% of
+        it and both reward a story for being unlike the corpus, which a one-off
+        maximises by being irrelevant. Burst is the only component that measures
+        movement, so it decides eligibility rather than just contributing a
+        third — how *much* it is growing stays the score's job.
+        """
+        return self.burst_score > 0
+
 
 @dataclass
 class WeakSignalReport:
     candidates: int = 0
+    #: Of those, the ones with any evidence of growth. The gap between this and
+    #: `candidates` is the point: 7 of 994 on real data.
+    emerging: int = 0
     detected: int = 0
+    #: Detected, but a signal for the same story is already awaiting a verdict.
+    already_open: int = 0
     published: int = 0
     isolation_skipped: bool = False
 
     def as_log(self) -> dict:
         return dict(self.__dict__)
+
+
+async def _open_signal_refs() -> set[uuid.UUID]:
+    """Clusters and events that already have a weak signal awaiting a verdict.
+
+    Only `candidate` status counts: once an analyst has confirmed or dismissed
+    one, a fresh burst of the same story is news again rather than a repeat.
+    """
+    async with session_scope() as session:
+        rows = (
+            await session.execute(
+                select(WeakSignal.cluster_id, WeakSignal.event_id).where(
+                    WeakSignal.status == "candidate"
+                )
+            )
+        ).all()
+    return {ref for cluster_id, event_id in rows for ref in (cluster_id, event_id) if ref}
 
 
 # ── scoring helpers ──────────────────────────────────────────────────────────
@@ -317,18 +375,24 @@ async def run_weak_signal_detection(vectors: VectorStore | None = None) -> WeakS
             extra={"candidates": len(candidates), "minimum": MIN_ISOLATION_SAMPLES},
         )
 
-    detected = [c for c in candidates if c.combined_score >= settings.weak_signal_t]
+    emerging = [c for c in candidates if c.is_emerging]
+    report.emerging = len(emerging)
+    detected = [c for c in emerging if c.combined_score >= settings.weak_signal_t]
     report.detected = len(detected)
 
     if not detected:
-        # Silence here is ambiguous — "nothing anomalous" and "the threshold is
-        # unreachable with this much history" look identical from outside. Report
-        # how close the field got, and which component held it back.
-        best = max(candidates, key=lambda c: c.combined_score)
+        # Silence here is ambiguous — "nothing anomalous", "nothing is growing"
+        # and "the threshold is unreachable" look identical from outside, and
+        # the last one went unnoticed for three days. Say which it was.
+        best = max(emerging or candidates, key=lambda c: c.combined_score)
         log.info(
-            "no candidate reached the threshold",
+            "no weak signal detected",
             extra={
                 "threshold": settings.weak_signal_t,
+                # Nothing growing at all is a different problem from things
+                # growing that score too low, and the fix differs accordingly.
+                "held_back_by": "gate" if not emerging else "threshold",
+                "emerging": len(emerging),
                 "best_combined": round(best.combined_score, 4),
                 "best_novelty": round(best.novelty_score, 4),
                 "best_isolation": round(best.isolation_score, 4),
@@ -339,7 +403,15 @@ async def run_weak_signal_detection(vectors: VectorStore | None = None) -> WeakS
             },
         )
 
+    already_open = await _open_signal_refs()
     for candidate in detected:
+        if candidate.ref in already_open:
+            # The batch runs on a schedule and the same story keeps qualifying
+            # until it stops growing, so without this every cycle would file the
+            # same signal again. Invisible until the detector started firing at
+            # all — the first real run produced two of everything.
+            report.already_open += 1
+            continue
         signal_id = uuid.uuid4()
         async with session_scope() as session:
             session.add(
