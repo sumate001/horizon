@@ -10,6 +10,14 @@ export type Stats = {
   events_last_24h: number;
   events_incomplete: number;
   sources_active: number;
+  detection: {
+    weak_signals_open: number;
+    clusters_total: number;
+    clusters_provisional: number;
+    /** When a trend breakout first becomes possible; null once one has matured. */
+    trend_ready_at: string | null;
+    breakouts_last_24h: number;
+  };
 };
 
 export type EventRow = {

@@ -48,6 +48,13 @@ export default function Ops() {
   const totalArticles = Object.values(byStatus).reduce((a, b) => a + b, 0);
   const failed = byStatus.failed ?? 0;
   const deduped = byStatus.dropped_duplicate ?? 0;
+  const detection = stats.data?.detection;
+  const trendReady = detection?.trend_ready_at
+    ? new Date(detection.trend_ready_at).toLocaleDateString("th-TH", {
+        day: "numeric",
+        month: "long",
+      })
+    : null;
 
   return (
     <div className="space-y-6">
@@ -67,6 +74,32 @@ export default function Ops() {
           tone={failed > 0 ? "text-red-300" : undefined}
         />
         <Stat label="แหล่งข่าวที่เปิดใช้" value={stats.data?.sources_active ?? "—"} />
+      </section>
+
+      <section className="card px-5 py-4">
+        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+          การตรวจจับ
+        </h2>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+          <Stat
+            label="สัญญาณอ่อนที่รอตรวจ"
+            value={detection?.weak_signals_open ?? "—"}
+            tone={detection?.weak_signals_open ? "text-amber-300" : undefined}
+          />
+          <Stat label="แนวโน้มพุ่ง 24 ชม." value={detection?.breakouts_last_24h ?? "—"} />
+          <Stat
+            label="คลัสเตอร์ที่ยังนับไม่ได้"
+            value={detection ? `${detection.clusters_provisional}/${detection.clusters_total}` : "—"}
+          />
+        </div>
+        {/* Ingestion health said "everything is fine" for three days while the
+            detector emitted nothing, because nothing reported on the detector.
+            A count of zero is ambiguous; this says which zero it is. */}
+        <p className="mt-3 text-[11px] text-slate-600">
+          {trendReady
+            ? `ยังไม่มีคลัสเตอร์ไหนมีประวัติครบ 14 วัน — z-score บนหน้าต่างไม่กี่บานบอกเรื่องขนาดตัวอย่าง ไม่ใช่เรื่องโลกจริง แนวโน้มพุ่งจะเริ่มรายงานได้ ${trendReady}`
+            : "มีคลัสเตอร์ที่ประวัติยาวพอให้อ่าน z-score ได้แล้ว"}
+        </p>
       </section>
 
       <section className="card px-5 py-4">

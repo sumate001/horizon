@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..batch.trends import is_provisional
+from ..batch.trends import PROVISIONAL_DAYS, is_provisional
 from ..config import get_settings
 from ..db import get_session, session_scope
 from ..logging import setup_logging
@@ -72,6 +72,27 @@ class SourceOut(SourceIn):
     model_config = {"from_attributes": True}
 
 
+class Detection(BaseModel):
+    """Whether the engine is producing anything, and if not, why not.
+
+    Ingestion health said "everything is fine" for three days while the detector
+    emitted nothing, because nothing reported on the detector at all. The two
+    numbers that matter are not counts of signals — they are the reasons there
+    are none: a cluster under 14 days old cannot break out however loud it gets,
+    and that is a system still warming up, not a system that is broken.
+    """
+
+    weak_signals_open: int
+    clusters_total: int
+    #: Too young for a z-score to mean anything. Breakout publishing is
+    #: suppressed for these, so all-provisional means no breakout is possible yet.
+    clusters_provisional: int
+    #: When the oldest cluster stops being provisional — the date this engine can
+    #: first report a trend breakout. Null once at least one has matured.
+    trend_ready_at: datetime | None
+    breakouts_last_24h: int
+
+
 class Stats(BaseModel):
     queue_depth: int
     articles_by_status: dict[str, int]
@@ -79,6 +100,7 @@ class Stats(BaseModel):
     events_last_24h: int
     events_incomplete: int
     sources_active: int
+    detection: Detection
 
 
 # ── Auth ─────────────────────────────────────────────────────────────────────
@@ -204,6 +226,14 @@ async def stats(session: SessionDep) -> Stats:
     }
     since = datetime.now(UTC) - timedelta(hours=24)
 
+    clusters = (
+        await session.execute(select(Cluster.first_seen).where(Cluster.status == "active"))
+    ).scalars().all()
+    now = datetime.now(UTC)
+    provisional = [f for f in clusters if is_provisional(f, now)]
+    # The oldest provisional cluster matures first, so it sets the date.
+    oldest = min((f for f in provisional if f is not None), default=None)
+
     return Stats(
         queue_depth=await ArticleQueue().depth(),
         articles_by_status=by_status,
@@ -220,6 +250,27 @@ async def stats(session: SessionDep) -> Stats:
             select(func.count()).select_from(Source).where(Source.active.is_(True))
         )
         or 0,
+        detection=Detection(
+            weak_signals_open=await session.scalar(
+                select(func.count())
+                .select_from(WeakSignal)
+                .where(WeakSignal.status == "candidate")
+            )
+            or 0,
+            clusters_total=len(clusters),
+            clusters_provisional=len(provisional),
+            trend_ready_at=(
+                oldest + timedelta(days=PROVISIONAL_DAYS)
+                if oldest is not None and len(provisional) == len(clusters)
+                else None
+            ),
+            breakouts_last_24h=await session.scalar(
+                select(func.count())
+                .select_from(Dispatch)
+                .where(Dispatch.signal_type == "trend_breakout", Dispatch.created_at >= since)
+            )
+            or 0,
+        ),
     )
 
 
