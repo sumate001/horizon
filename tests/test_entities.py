@@ -24,6 +24,7 @@ from horizon.pipeline.entities import (
     norm,
     parse,
     rule_resolution,
+    strip_role_clause,
 )
 
 
@@ -127,6 +128,75 @@ def test_a_different_agency_is_not_an_abbreviation():
     assert not is_abbrev_of("กระทรวงแรงงาน", "กระทรวงการคลัง")
 
 
+# ── the role appended after a comma ──────────────────────────────────────────
+#
+# Every string below is verbatim from the store. The role-after-a-comma form is
+# rare — 6 mentions in 2,660 — and it did damage out of all proportion: it split
+# the prime minister into two entities, and it handed one man the aliases of the
+# agency he runs.
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("อนุทิน ชาญวีรกูล (Anutin Charnvirook), นายกรัฐมนตรี", "อนุทินชาญวีรกูล"),
+        ("ยศชนัน วงศ์สวัสดิ์ (Yotsanan Wongswasdi), รองนายกรัฐมนตรี", "ยศชนันวงศ์สวัสดิ์"),
+        (
+            "ฐนัตถ์ สุวรรณานนท์ (Thanut Suwannanon), ผู้อำนวยการสำนักข่าวกรองแห่งชาติ",
+            "ฐนัตถ์สุวรรณานนท์",
+        ),
+    ],
+)
+def test_a_role_after_a_comma_is_not_part_of_the_name(raw, expected):
+    assert parse(raw).head == expected
+
+
+def test_the_prime_minister_is_one_person_not_two():
+    """The bug as the analyst saw it: two อนุทิน, and only one carrying a Q-id."""
+    groups = group_by_rules(
+        ["อนุทิน ชาญวีรกูล", "อนุทิน ชาญวีรกูล (Anutin Charnvirook), นายกรัฐมนตรี"]
+    )
+    assert len(groups) == 1
+
+
+def test_the_bracket_inside_a_role_clause_is_not_an_alias_of_the_person():
+    """The expensive half. "สมช." is the National Security Council, not its
+    secretary-general — and once it sat in his alias list, every later mention of
+    the council merged into the man."""
+    mention = parse(
+        "ฉัตรชัย บางชวด (Chatchai Bangchuad), เลขาธิการสภาความมั่นคงแห่งชาติ (สมช.)"
+    )
+    assert mention.strong == frozenset({"chatchaibangchuad"})
+    assert "สมช." not in mention.strong | mention.weak
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "Dalian Jingyuan Culture Film and Television Media Co., Ltd.",
+        "กระทรวงวัฒนธรรม, กีฬา และการท่องเที่ยวแห่งสาธารณรัฐเกาหลี",
+        "ประชาชนกว่า 54,000 คน",
+        "Research Playground, 2024",
+    ],
+)
+def test_a_comma_that_is_not_a_role_is_left_alone(raw):
+    """A legal form, a name with a list in it, and a thousands separator."""
+    assert strip_role_clause(raw) == raw
+
+
+def test_a_country_after_a_comma_still_separates_two_ministries():
+    """Roles never distinguish; places are the reason the bracket rule exists.
+    Stripping every dropped clause instead of only roles would fuse Singapore's
+    finance ministry into Thailand's."""
+    assert strip_role_clause("กระทรวงการคลัง, สิงคโปร์") == "กระทรวงการคลัง, สิงคโปร์"
+    assert len(group_by_rules(["กระทรวงการคลัง", "กระทรวงการคลัง, สิงคโปร์"])) == 2
+
+
+def test_a_comma_inside_a_bracket_is_not_a_split_point():
+    raw = "คณะแพทยศาสตร์ มหาวิทยาลัยเชียงใหม่ (Faculty of Medicine, Chiang Mai University)"
+    assert strip_role_clause(raw) == raw
+
+
 # ── what belongs in a bracket ────────────────────────────────────────────────
 
 
@@ -171,6 +241,21 @@ def test_an_english_job_title_is_not_a_transliteration():
 def test_a_nickname_is_recorded_but_never_merges_alone(inner):
     assert classify(inner, "ชื่อจริงคนหนึ่ง") == "WEAK"
     assert norm(inner) not in parse(f"ชื่อจริงคนหนึ่ง ({inner})").keys
+
+
+def test_a_nickname_does_not_become_a_lookup_key():
+    """`aliases` is what ingest matches on, so anything in it merges by design.
+
+    Weak forms were going in alongside strong ones, which is how "รัฐบาลไทย
+    (ครม.)" and "คณะรัฐมนตรี (ครม.)" became one entity — two different bodies
+    joined by an abbreviation neither of them is. The nickname is still on
+    `event_entities.surface_form`, which is where it is readable without being
+    matchable.
+    """
+    resolution = rule_resolution(["สมชาย (บิ๊กเอ)"])
+
+    assert "สมชาย" in resolution.aliases
+    assert "บิ๊กเอ" not in resolution.aliases
 
 
 # ── grouping ─────────────────────────────────────────────────────────────────
@@ -309,6 +394,44 @@ def test_an_english_only_entity_keeps_its_english_name():
     from horizon.pipeline.entities import display_name
 
     assert display_name(["GISTDA"]) == "GISTDA"
+
+
+def test_a_person_is_not_named_after_their_job():
+    """This entity was in the store reading "ผู้อำนวยการ สำนักข่าวกรองแห่งชาติ".
+
+    The grouping was right — every mention really was the same man — but the
+    title is longer in Thai than his name, so the longest-Thai rule chose it. A
+    position ended up in the graph where a person belonged, which reads as an
+    extraction failure and is not one.
+    """
+    from horizon.pipeline.entities import display_name
+
+    members = [
+        "ฐนัตถ์ สุวรรณานนท์ (Thanut Suwannanon)",
+        "ฐนัตถ์ สุวรรณานนท์ (ผู้อำนวยการสำนักข่าวกรองแห่งชาติ)",
+        "นายฐนัตถ์ สุวรรณานนท์ (ผอ.สำนักข่าวกรองแห่งชาติ)",
+        "ฐนัตถ์ สุวรรณานนท์ (Thanut Suwannanon), ผู้อำนวยการสำนักข่าวกรองแห่งชาติ",
+    ]
+    assert display_name(members) == "ฐนัตถ์ สุวรรณานนท์"
+
+
+def test_what_the_article_called_someone_outranks_the_bracket():
+    """"ป้าเกล็น (เหมืองสมศักดิ์)" was stored as the mine, not the woman.
+
+    The bracket is a place, which is not a role and not a country, so no rule
+    drops it — and it is longer in Thai than her name. Nothing but precedence
+    separates the two, so the head takes it.
+    """
+    from horizon.pipeline.entities import display_name
+
+    assert display_name(["ป้าเกล็น (เหมืองสมศักดิ์)"]) == "ป้าเกล็น"
+
+
+def test_the_bracket_is_still_the_name_when_the_head_has_none():
+    """Precedence must not cost us the Thai form when the head is Latin."""
+    from horizon.pipeline.entities import display_name
+
+    assert display_name(["Chal Wang (นายชาล หวัง)"]) == "ชาล หวัง"
 
 
 async def test_the_counters_can_be_splatted_into_a_log_record():

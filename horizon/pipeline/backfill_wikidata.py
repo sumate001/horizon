@@ -17,12 +17,13 @@ import argparse
 import asyncio
 import logging
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from ..config import get_settings
 from ..db import session_scope
 from ..logging import setup_logging
 from ..models import Entity, Event, EventEntity
+from .entities import UNIDENTIFIABLE_RISKS
 from .wikidata import WikidataClient, link_entity
 
 log = logging.getLogger("horizon.backfill_wikidata")
@@ -57,6 +58,17 @@ async def run(limit: int, *, retry_unavailable: bool = False) -> dict[str, int]:
                     select(Entity.id)
                     .where(Entity.qid_status.in_(wanted))
                     .where(Entity.entity_type != "generic")
+                    # An entity flagged as holding two different things has no
+                    # single answer, so Wikidata will confidently supply one for
+                    # whichever half its name currently reads as. The NULL check
+                    # is not optional: `NOT IN` against a NULL risk is NULL, and
+                    # would silently exclude every entity that has no risk at all.
+                    .where(
+                        or_(
+                            Entity.risk.is_(None),
+                            Entity.risk.notin_(UNIDENTIFIABLE_RISKS),
+                        )
+                    )
                     # Most-mentioned first: those matter most downstream and are
                     # the ones Wikidata is most likely to know.
                     .order_by(Entity.mention_count.desc(), Entity.last_seen.desc())

@@ -25,8 +25,12 @@ and only two of them are names:
 
   STRONG  a transliteration or an abbreviation — "(Anutin Charnvirakul)",
           "(กกต.)". Safe to merge on.
-  WEAK    a nickname — "(เท้ง)", "(บิ๊กดุลย์)". Recorded, never merges on its own,
-          because nicknames collide across people.
+  WEAK    a nickname — "(เท้ง)", "(บิ๊กดุลย์)". Never merges, because nicknames
+          collide across people. It stays out of `aliases` for that reason:
+          `aliases` is the lookup key on ingest, so anything put there merges by
+          definition. "รัฐบาลไทย (ครม.)" and "คณะรัฐมนตรี (ครม.)" fused on a weak
+          form alone. The surface forms are kept on `event_entities` regardless,
+          which is where a nickname is still readable.
   DROP    a role, a place, a legal form — "(รองนายกรัฐมนตรี)", "(สิงคโปร์)",
           "(มหาชน)". Not a name at all. Merging on these produced
           "เอกนิติ นิติทัณฑ์ประภาศ + ยศชนัน วงศ์สวัสดิ์" — two different deputy
@@ -50,6 +54,20 @@ ENTITY_TYPES = ("person", "org", "place", "team", "generic", "unknown")
 #: case file, and nobody downstream can tell it was a guess.
 REVIEW_THRESHOLD = 0.75
 
+#: What a reviewer is being asked to judge, in Thai, written once so the pipeline
+#: and the repair pass mean the same thing by it.
+RISK_JOINED_ON_BRACKET = "ผูกกับตัวตนที่มีอยู่ผ่านวงเล็บ ไม่ใช่จากชื่อที่ตรงกัน"
+RISK_BRACKET_MERGE = "รวมชื่อที่สะกดต่างกันโดยอาศัยวงเล็บเป็นตัวเชื่อม ไม่ใช่จากชื่อที่ตรงกัน"
+RISK_UNRELATED_NAMES = "ชื่อที่ปรากฏในตัวตนนี้ไม่เชื่อมถึงกัน อาจเป็นคนละสิ่งที่ถูกรวมไว้ด้วยกัน"
+RISK_TYPE_MISMATCH = "เป็นคนละประเภทกัน เช่น บุคคลกับองค์กร"
+RISK_DIFFERENT_ITEMS = "ผูกกับรายการวิกิดาต้าคนละรายการ"
+
+#: These two say we do not know *what* the entity is, not merely that a merge
+#: looked thin. Asking Wikidata to identify one is guaranteed to get an answer
+#: about only half of it: the entity holding both นันทพงศ์ สุวรรณรัตน์ and the
+#: agency he works for was handed the agency's Q-number while typed a person.
+UNIDENTIFIABLE_RISKS = (RISK_UNRELATED_NAMES, RISK_TYPE_MISMATCH)
+
 #: Honorifics and ranks. Dropping them is safe — they qualify a person, they
 #: never distinguish two people who share a name.
 PREFIXES = (
@@ -62,19 +80,31 @@ PREFIXES = (
 
 #: A parenthetical opening with one of these describes what someone does, not
 #: what they are called. Roles are shared by design — that is the whole problem.
+#:
+#: The list is measured, not guessed: the additions below are every role form
+#: that survived as an alias across 3,762 real actor strings. "ภราดร ปริศนานันท
+#: กุล" was carrying "รัฐมนตรีประจำสำนักนายกรัฐมนตรี" as an alias, so the next
+#: person appointed to that post would have merged into him.
 ROLE_MARKERS = (
-    "รมว", "รมช", "รอง", "ผู้", "อธิบดี", "ปลัด", "เลขาธิการ", "ผบ", "แม่ทัพ",
-    "สส.", "ส.ส.", "สว.", "ส.ว.", "นายก", "ประธาน", "หัวหน้า", "โฆษก", "ผวจ",
-    "กรรมการ", "เจ้าของ", "ทนาย", "แพทย์", "นักวิชาการ", "อดีต", "ว่าที่",
-    "รักษาการ", "ที่ปรึกษา",
+    "รมว", "รมช", "รมต", "รอง", "ผู้", "ผอ", "ผบ", "ผกก", "ผวจ", "อธิบดี",
+    "ปลัด", "เลขาธิการ", "แม่ทัพ", "เสธ", "สส.", "ส.ส.", "สว.", "ส.ว.",
+    "นายก", "นายอำเภอ", "ประธาน", "หัวหน้า", "โฆษก", "กรรมการ", "เจ้าของ",
+    "เจ้าพนักงาน", "เจ้าอาวาส", "ทนาย", "แพทย์", "นักวิชาการ", "อดีต",
+    "ว่าที่", "รักษาการ", "ที่ปรึกษา", "รัฐมนตรี", "เอกอัครราชทูต", "กำนัน",
+    "อาจารย์", "ภรรยา", "สามี", "บิดา", "มารดา",
 )
+
+#: Not a name either, and it slipped past every rule because it is neither a
+#: role nor a place: "(อายุ 50 ปี)", "(30 คน)", "(ไม่ต่ำกว่า 15 คน)".
+_MEASURE = re.compile(r"^(?:[\d,\s]+(?:คน|ราย|ปี)|อายุ\s*[\d,]+|ไม่(?:ต่ำ|เกิน)กว่า)")
 
 #: Not names: legal forms, pseudonym markers, and the roles a news story assigns
 #: to unnamed people. Four different dead men were merged into one entity
 #: because each was written "(ผู้เสียชีวิต)".
 DROP_EXACT = frozenset({
-    "มหาชน", "องค์การมหาชน", "นามสมมติ", "นามแฝง", "สงวนชื่อ",
+    "มหาชน", "องค์การมหาชน", "นามสมมติ", "นามสมมุติ", "นามแฝง", "สงวนชื่อ",
     "ผู้เสียชีวิต", "ผู้ก่อเหตุ", "ผู้ต้องหา", "ผู้บาดเจ็บ", "เหยื่อ", "ผู้รอดชีวิต",
+    "มือปืน",
 })
 
 #: A country in a bracket means one of two opposite things, and which one
@@ -208,6 +238,58 @@ def is_abbrev_of(short: str, full: str) -> bool:
     return len(core) <= max(6, len(full) // 3)
 
 
+def is_role(text: str) -> bool:
+    """Does this describe what someone does rather than what they are called?"""
+    bare = re.sub(r"^[\s.]+|[\s.]+$", "", text.strip())
+    if len(bare) < 2:
+        return False
+    return any(bare.startswith(marker) for marker in ROLE_MARKERS) or bool(
+        _ENGLISH_ROLE.search(bare)
+    )
+
+
+def _comma_parts(raw: str) -> list[str]:
+    """Split on commas outside brackets, keeping the surrounding spacing."""
+    parts, depth, start = [], 0, 0
+    for index, char in enumerate(raw):
+        if char in "(（":
+            depth += 1
+        elif char in ")）":
+            depth = max(0, depth - 1)
+        elif char == "," and depth == 0:
+            parts.append(raw[start:index])
+            start = index + 1
+    parts.append(raw[start:])
+    return parts
+
+
+def strip_role_clause(raw: str) -> str:
+    """Drop a role appended after a comma: "อนุทิน ชาญวีรกูล, นายกรัฐมนตรี".
+
+    The extractor writes the role in a bracket most of the time, and `classify`
+    already refuses those. After a comma it survived into the head, and a head is
+    what decides identity — so "อนุทิน ชาญวีรกูล, นายกรัฐมนตรี" became a second
+    person, separate from "อนุทิน ชาญวีรกูล" and without his Wikidata id.
+
+    The clause also carries its own bracket, and that was the more damaging half:
+    "ฉัตรชัย บางชวด (Chatchai Bangchuad), เลขาธิการสภาความมั่นคงแห่งชาติ (สมช.)"
+    made "สมช." a strong alias of a man, so every later mention of the National
+    Security Council merged into him. Stripping the clause before the brackets
+    are read is what stops that.
+
+    Only a *role* is stripped, never every dropped kind. A country after a comma
+    is the distinction that keeps Singapore's finance ministry apart from
+    Thailand's, and removing it would reintroduce the merge the place rule exists
+    to prevent. Commas that hold a legal form ("Co., Ltd."), part of a name
+    ("กระทรวงวัฒนธรรม, กีฬา และการท่องเที่ยว…") or a number ("54,000 คน") are not
+    roles and stay.
+    """
+    parts = _comma_parts(raw)
+    while len(parts) > 1 and is_role(parts[-1]):
+        parts.pop()
+    return ",".join(parts).strip()
+
+
 def classify(inner: str, head: str) -> str:
     """STRONG (a name), WEAK (a nickname) or DROP (not a name)."""
     bare = re.sub(r"^[\s.]+|[\s.]+$", "", inner.strip())
@@ -215,9 +297,7 @@ def classify(inner: str, head: str) -> str:
         return "DROP"
     if bare in DROP_EXACT:
         return "DROP"
-    if any(bare.startswith(marker) for marker in ROLE_MARKERS):
-        return "DROP"
-    if _ENGLISH_ROLE.search(bare):
+    if is_role(bare) or _MEASURE.match(bare):
         return "DROP"
     place = PLACE_FORMS.get(norm(bare))
     if place is not None:
@@ -236,10 +316,15 @@ def classify(inner: str, head: str) -> str:
     return "WEAK"
 
 
+def _head_and_brackets(raw: str) -> tuple[str, list[str]]:
+    """The name proper and the brackets that belong to it, role clause removed."""
+    body = strip_role_clause(raw)
+    return _SPACE.sub(" ", _PAREN.sub(" ", body)).strip(), _PAREN.findall(body)
+
+
 def parse(raw: str) -> Mention:
     """Split a raw actor string into a head and its classified parentheticals."""
-    inner = _PAREN.findall(raw)
-    head_text = _SPACE.sub(" ", _PAREN.sub(" ", raw)).strip()
+    head_text, inner = _head_and_brackets(raw)
     strong, weak, qualifiers = set(), set(), set()
     for part in inner:
         kind = classify(part, head_text)
@@ -256,12 +341,18 @@ def parse(raw: str) -> Mention:
     )
 
 
-def group_by_rules(raws: list[str]) -> list[list[str]]:
+def group_by_rules(raws: list[str], *, respect_qualifiers: bool = True) -> list[list[str]]:
     """Collapse spelling variants. Union-find over shared head or strong alias.
 
     Mentions whose heads match but whose dropped qualifiers differ are kept
     apart: "กระทรวงการคลัง" and "กระทรวงการคลัง (สิงคโปร์)" share a head, and the
     qualifier is the only thing telling two ministries apart.
+
+    `respect_qualifiers=False` asks the weaker question "do these names touch at
+    all?", which is what the repair pass needs: an entity whose surface forms
+    fall into two components is holding two different things and wants a human,
+    while one that splits only on a qualifier is merely a ministry with a country
+    attached and is fine.
     """
     mentions = {raw: parse(raw) for raw in dict.fromkeys(raws)}
     parent: dict[str, str] = {raw: raw for raw in mentions}
@@ -285,7 +376,7 @@ def group_by_rules(raws: list[str]) -> list[list[str]]:
     for members in by_key.values():
         first = members[0]
         for other in members[1:]:
-            if mentions[first].qualifiers != mentions[other].qualifiers:
+            if respect_qualifiers and mentions[first].qualifiers != mentions[other].qualifiers:
                 continue  # a qualifier is a distinction, not a spelling
             union(first, other)
 
@@ -307,17 +398,37 @@ def display_name(members: list[str], proposed: str | None = None) -> str:
     bracket still attached for one entity and "Chal Wang" for the next, where
     the article said "นายชาล หวัง". This is a Thai newsroom, so: no brackets, no
     honorific, and the Thai form wins when the story used one.
+
+    What the article called the thing outranks anything in a bracket, and the
+    bracket is consulted only when no head offers a name in the winning script —
+    "Chal Wang (นายชาล หวัง)". Ranking the two together renamed people after
+    whatever was in the bracket, because "longest Thai" has no way of preferring
+    a person to their job title:
+
+        "ฐนัตถ์ สุวรรณานนท์ (ผู้อำนวยการสำนักข่าวกรองแห่งชาติ)"  →  the title
+        "ป้าเกล็น (เหมืองสมศักดิ์)"                              →  the mine
+
+    A bracket that `classify` reads as a role or a qualifier is not a name at
+    all and never becomes one.
     """
     def clean(text: str) -> str:
-        return _SPACE.sub(" ", strip_prefix(_PAREN.sub("", text).strip())).strip()
+        body = _PAREN.sub("", strip_role_clause(text)).strip()
+        return _SPACE.sub(" ", strip_prefix(body)).strip()
 
-    candidates = [clean(raw) for raw in members]
-    candidates += [clean(part) for raw in members for part in _PAREN.findall(raw)]
+    heads = [clean(raw) for raw in members]
     if proposed:
-        candidates.append(clean(proposed))
+        heads.append(clean(proposed))
+    brackets: list[str] = []
+    for raw in members:
+        head_text, parts = _head_and_brackets(raw)
+        brackets += [clean(part) for part in parts if classify(part, head_text) == "STRONG"]
 
-    thai = [name for name in candidates if name and _THAI.search(name)]
-    pool = thai or [name for name in candidates if name]
+    def thai(names: list[str]) -> list[str]:
+        return [name for name in names if name and _THAI.search(name)]
+
+    heads = [name for name in heads if name]
+    brackets = [name for name in brackets if name]
+    pool = thai(heads) or thai(brackets) or heads or brackets
     if not pool:
         return (proposed or members[0]).strip()
     # Longest within the winning script: "คณะกรรมการการเลือกตั้ง" over "กกต.".
@@ -352,13 +463,13 @@ def merge_is_risky(members: list[str]) -> str | None:
     """
     if len({parse(raw).head for raw in members}) < 2:
         return None
-    return "รวมชื่อที่สะกดต่างกันโดยอาศัยวงเล็บเป็นตัวเชื่อม ไม่ใช่จากชื่อที่ตรงกัน"
+    return RISK_BRACKET_MERGE
 
 
 def rule_resolution(members: list[str]) -> Resolution:
     """What the rules alone would conclude. Used when the model is unavailable."""
     mention = parse(_longest(members))
-    aliases = sorted({m for raw in members for m in parse(raw).keys | parse(raw).weak})
+    aliases = sorted({m for raw in members for m in parse(raw).keys})
     return Resolution(
         canonical=display_name(members),
         entity_type="unknown",
@@ -395,7 +506,7 @@ def _apply(members: list[str], payload: dict) -> list[Resolution]:
                 # A missing confidence means the model did not commit, so neither
                 # do we — it goes to the queue rather than in as fact.
                 confidence=float(confidence) if isinstance(confidence, (int, float)) else 0.5,
-                aliases=sorted({a for raw in picked for a in parse(raw).keys | parse(raw).weak}),
+                aliases=sorted({a for raw in picked for a in parse(raw).keys}),
                 decided_by="llm",
                 risk=merge_is_risky(picked),
             )
@@ -545,7 +656,7 @@ async def persist(session, event_id, resolutions: list[Resolution]) -> dict[str,
         entity.mention_count += len(resolution.mentions)
         entity.last_seen = datetime.now(UTC)
         risk = resolution.risk or (
-            "ผูกกับตัวตนที่มีอยู่ผ่านวงเล็บ ไม่ใช่จากชื่อที่ตรงกัน" if joined_on_bracket else None
+            RISK_JOINED_ON_BRACKET if joined_on_bracket else None
         )
         if risk and entity.review_status == "auto":
             entity.review_status = "needs_review"
