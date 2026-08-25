@@ -12,11 +12,23 @@ was arrived at the hard way: every wrong merge this system produced came from a
 step where a string comparison was allowed to decide, and every rule added to
 prevent one was a patch on that mistake rather than a fix for it.
 
+It also says where the risk is not. Three of the four steps below are cheap or
+near-trivial on real data; the one that decides whether today's mention is
+someone the store already knows is where every wrong merge has come from, and it
+is the only one carrying an uncertainty check.
+
   `group_by_rules`   which mentions in *this article* are worth showing the
-                     model together. Cheap, deterministic, generous.
+                     model together. Cheap, deterministic, generous — and in
+                     practice it almost never has anything to do: measured over
+                     the whole store it produced 5,324 groups of which exactly
+                     one held more than a single mention. An article writes each
+                     name one way. The spelling variants this module exists for
+                     appear *between* articles, not inside one.
 
   `adjudicate`       the model says which of them are the same thing and what
-                     kind of thing. 83/84 against hand labels on 84 groups.
+                     kind of thing. Given the above, its real job on almost every
+                     call is typing a lone name — person, org, or a generic noun
+                     like "ตำรวจ" that must be kept out of the store entirely.
 
   `_candidates`      which of ~1,400 stored entities *might* be this one. A
                      search, not an answer — the store will not fit in a prompt,
