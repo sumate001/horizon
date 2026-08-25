@@ -27,6 +27,20 @@ prevent one was a patch on that mistake rather than a fix for it.
                      merge that matters: "the same person as last Tuesday" is a
                      claim about the world, and characters cannot check it.
 
+Trusting that answer needs a measure of doubt, and the model's own number is not
+one: `confidence` comes back exactly 1.0 in 98% of answers on this corpus, and
+on the Wikidata step it only ever takes two values — 1.0 when the answer is yes
+and 0 when it is no. It restates the answer rather than measuring it. So three
+signals are gathered instead, none of which asks the model to introspect:
+
+  agreement   the same question with the two sides exchanged. "Is the same thing
+              as" is symmetric, so an answer that flips was never held firmly.
+  counter     the model must write the strongest case *against* before it
+              decides — first in the JSON, because generation is left to right.
+  hedging     words in its own prose that mark it overriding evidence it just
+              acknowledged. On the one wrong merge found in testing, the number
+              said 0.90 and the prose said "แม้ระบบจะจัดประเภทเป็นบุคคล".
+
 The parenthetical still gets classified, but only to build search keys, and the
 cost of being wrong is now a candidate the model declines rather than a merge
 nobody sees:
@@ -42,7 +56,7 @@ nobody sees:
 import logging
 import re
 import unicodedata
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from ..llm.ollama import OllamaClient, OllamaError, get_ollama
 from ..llm.prompts import entity_link_messages, entity_messages
@@ -58,12 +72,15 @@ REVIEW_THRESHOLD = 0.75
 
 #: What a reviewer is being asked to judge, in Thai, written once so the pipeline
 #: and the repair pass mean the same thing by it.
-#: No longer written: this was the string rule's guess at whether a cross-event
-#: merge was safe, and `choose_existing` now asks the model instead. Kept because
-#: rows in the store still carry it and a reviewer still has to read them.
+#:
+#: The first is no longer written by anything: it was the string rule's guess at
+#: whether a cross-event merge was safe, and `choose_existing` asks the model
+#: now. Kept because rows in the store still carry it and a reviewer still has to
+#: read them.
 RISK_JOINED_ON_BRACKET = "ผูกกับตัวตนที่มีอยู่ผ่านวงเล็บ ไม่ใช่จากชื่อที่ตรงกัน"
 RISK_BRACKET_MERGE = "รวมชื่อที่สะกดต่างกันโดยอาศัยวงเล็บเป็นตัวเชื่อม ไม่ใช่จากชื่อที่ตรงกัน"
 RISK_UNSURE_LINK = "รวมกับตัวตนเดิมโดยที่โมเดลยังไม่มั่นใจ"
+RISK_LINK_CONTRADICTED = "ไม่รวมกับตัวตนเดิม เพราะโมเดลตอบขัดกันเอง อาจเป็นตัวตนซ้ำ"
 RISK_LINK_UNDECIDED = "ยังไม่ได้ตัดสินว่าซ้ำกับตัวตนเดิมหรือไม่ เพราะโมเดลไม่ตอบ"
 RISK_UNRELATED_NAMES = "ชื่อที่ปรากฏในตัวตนนี้ไม่เชื่อมถึงกัน อาจเป็นคนละสิ่งที่ถูกรวมไว้ด้วยกัน"
 RISK_TYPE_MISMATCH = "เป็นคนละประเภทกัน เช่น บุคคลกับองค์กร"
@@ -657,6 +674,81 @@ async def _surface_forms_of(session, entity_ids: list) -> dict:
     return forms
 
 
+#: Words that mark a model overriding evidence it has just acknowledged, or
+#: declining to commit. Contrast words are deliberately absent: "ชื่อใหม่คือบุคคล
+#: **แต่** ตัวเลือกคือองค์กร" is a confident refusal, not a hedge, and treating
+#: "แต่" as doubt would flag the clearest answers in the set.
+HEDGES = (
+    "แม้", "อย่างไรก็ตาม", "น่าจะ", "อาจ", "ไม่แน่ใจ", "ควรระวัง", "คาดว่า",
+    "เป็นไปได้ว่า", "ไม่ชัดเจน", "however", "possibly", "unclear",
+)
+
+
+def hedged(*texts: str) -> bool:
+    """Did the model qualify its own answer in prose?"""
+    joined = " ".join(text for text in texts if text)
+    return any(marker in joined for marker in HEDGES)
+
+
+@dataclass(frozen=True)
+class LinkDecision:
+    """One linking answer and the three things that say how much to trust it.
+
+    Deliberately not one number. Self-reported confidence comes back 1.0 in 98%
+    of answers on this corpus, so it is a restatement of the answer rather than a
+    measurement of it. These three can each be wrong, but each is checkable:
+    `agreed` is two answers compared, `counter` and `hedged` are prose the model
+    wrote, and `confidence` is kept only because it costs nothing to carry.
+    """
+
+    match: int | None
+    confidence: float
+    reason: str
+    counter: str = ""
+    #: The same question asked with the two sides exchanged gave the same answer.
+    agreed: bool = True
+    hedged: bool = False
+    failed: bool = False
+
+    @property
+    def is_certain(self) -> bool:
+        return (
+            not self.failed
+            and self.agreed
+            and not self.hedged
+            and self.confidence >= REVIEW_THRESHOLD
+        )
+
+
+async def _ask(
+    name: str,
+    mentions: list[str],
+    candidates: list[tuple[str, str, list[str]]],
+    *,
+    entity_type: str,
+    context: str | None,
+    client: OllamaClient,
+    model: str | None,
+    qualifiers: list[str] | None = None,
+) -> dict | None:
+    try:
+        return await client.chat_json(
+            entity_link_messages(
+                name,
+                mentions,
+                candidates,
+                entity_type=entity_type,
+                context=context,
+                qualifiers=qualifiers,
+            ),
+            purpose="entity_link",
+            model=model,
+        )
+    except (OllamaError, ValueError) as exc:
+        log.warning("entity link adjudication failed", extra={"error": str(exc)})
+        return None
+
+
 async def choose_existing(
     resolution: Resolution,
     candidates: list[tuple[str, str, list[str]]],
@@ -664,51 +756,107 @@ async def choose_existing(
     context: str | None = None,
     client: OllamaClient | None = None,
     model: str | None = None,
-) -> tuple[int | None, float, str]:
-    """Which candidate this mention is, if any. `(index, confidence, reason)`.
+) -> LinkDecision:
+    """Which candidate this mention is, if any, and how much to trust the answer.
 
     Takes plain data rather than ORM rows so the decision can be tested without
     a database — this is the judgement the whole step exists to make, and it
     should not need Postgres running to check.
+
+    Asked twice. The second time the two sides are exchanged: the candidate
+    becomes the name in question and this mention becomes the only option.
+    "Is the same thing as" is symmetric, so an answer that flips under the swap
+    was never held firmly. Resampling would not show this — the client runs at
+    temperature 0, so the identical prompt returns the identical answer — which
+    is exactly why the perturbation has to change the question rather than repeat
+    it.
 
     An index outside the list is refused rather than clamped: a model that names
     a candidate that was not offered has not read the list, and honouring it
     would merge into whatever happens to sit at that position.
     """
     if not candidates:
-        return None, 1.0, "ไม่มีตัวตนเดิมที่ใกล้เคียง"
+        return LinkDecision(None, 1.0, "ไม่มีตัวตนเดิมที่ใกล้เคียง")
     client = client or get_ollama()
-    try:
-        payload = await client.chat_json(
-            entity_link_messages(
-                resolution.canonical,
-                resolution.mentions,
-                candidates,
-                entity_type=resolution.entity_type,
-                context=context,
-            ),
-            purpose="entity_link",
-            model=model,
-        )
-    except (OllamaError, ValueError) as exc:
-        log.warning("entity link adjudication failed", extra={"error": str(exc)})
-        return None, 0.0, RISK_LINK_UNDECIDED
 
-    match = payload.get("match")
-    if not isinstance(match, int) or not 0 <= match < len(candidates):
-        return None, _as_confidence(payload.get("confidence")), str(
-            payload.get("reason") or "ไม่ตรงกับตัวตนใดที่มีอยู่"
-        )
-    return (
-        match,
-        _as_confidence(payload.get("confidence")),
-        str(payload.get("reason") or "ตรงกับตัวตนที่มีอยู่"),
+    # The country in "กระทรวงการคลัง (สิงคโปร์)" is what makes it a different
+    # ministry, and `classify` has already picked it out. Passed on rather than
+    # discarded: the model had it inside a surface form and did not weigh it.
+    qualifiers = sorted({q for raw in resolution.mentions for q in parse(raw).qualifiers})
+    payload = await _ask(
+        resolution.canonical,
+        resolution.mentions,
+        candidates,
+        entity_type=resolution.entity_type,
+        context=context,
+        client=client,
+        model=model,
+        qualifiers=qualifiers,
+    )
+    if payload is None:
+        return LinkDecision(None, 0.0, RISK_LINK_UNDECIDED, failed=True)
+
+    raw = payload.get("match")
+    match = raw if isinstance(raw, int) and 0 <= raw < len(candidates) else None
+    counter = str(payload.get("counter") or "")
+    reason = str(
+        payload.get("reason")
+        or ("ตรงกับตัวตนที่มีอยู่" if match is not None else "ไม่ตรงกับตัวตนใดที่มีอยู่")
+    )
+
+    # Swap against the candidate actually in play: the one just chosen, or the
+    # strongest one if the answer was "none" — a wrong refusal is a duplicate,
+    # and that is worth catching too.
+    subject = candidates[match if match is not None else 0]
+    mirror = await _ask(
+        subject[0],
+        subject[2] or [subject[0]],
+        [(resolution.canonical, resolution.entity_type, resolution.mentions)],
+        entity_type=subject[1],
+        context=context,
+        client=client,
+        model=model,
+    )
+    if mirror is None:
+        agreed = False
+    else:
+        mirror_says_same = mirror.get("match") == 0
+        agreed = mirror_says_same == (match is not None)
+        counter = " / ".join(x for x in (counter, str(mirror.get("counter") or "")) if x)
+
+    return LinkDecision(
+        match=match,
+        confidence=_as_confidence(payload.get("confidence")),
+        reason=reason,
+        counter=counter,
+        agreed=agreed,
+        hedged=hedged(reason, counter),
     )
 
 
 def _as_confidence(value) -> float:
     """A missing or unparsable confidence means the model did not commit."""
     return float(value) if isinstance(value, (int, float)) else 0.5
+
+
+def _why_unsure(decision: LinkDecision) -> str:
+    """What the reviewer is being asked to check, and the case against.
+
+    The model's own counter-argument goes in verbatim. It is the one piece of
+    this that tells a reviewer *what to look at* rather than that something is
+    off, and it was written before the decision, so it is not a rationalisation
+    of one.
+    """
+    objections = []
+    if not decision.agreed:
+        objections.append("ถามกลับด้านแล้วตอบไม่ตรงกัน")
+    if decision.hedged:
+        objections.append("เหตุผลมีคำแบ่งรับแบ่งสู้")
+    if decision.confidence < REVIEW_THRESHOLD:
+        objections.append("โมเดลบอกเองว่าไม่มั่นใจ")
+    why = " · ".join(objections) or "ไม่ระบุ"
+    counter = decision.counter.strip()
+    return f"{why} · ข้อค้าน: {counter[:200]}" if counter else why
 
 
 async def persist(
@@ -746,24 +894,41 @@ async def persist(
 
         nearby = await _candidates(session, resolution.aliases)
         forms = await _surface_forms_of(session, [row.id for row in nearby])
-        picked, link_confidence, link_reason = await choose_existing(
+        decision = await choose_existing(
             resolution,
             [(row.canonical_name, row.entity_type, forms.get(row.id, [])) for row in nearby],
             context=context,
             client=client,
             model=model,
         )
-        entity = nearby[picked] if picked is not None else None
-        if picked is None and link_reason == RISK_LINK_UNDECIDED:
+        entity = nearby[decision.match] if decision.match is not None else None
+        if decision.failed:
             # The model could not be reached and candidates were on the table.
             # Refusing to merge makes a duplicate; merging on the index alone
             # makes false history. The repair pass can undo the first and nobody
             # can undo the second, so this is not a close call.
             link_risk = RISK_LINK_UNDECIDED
-        elif entity is not None and link_confidence < REVIEW_THRESHOLD:
-            # Written and queued rather than dropped: the alternative is a
-            # duplicate that nobody is told about.
-            link_risk = RISK_UNSURE_LINK
+        elif entity is not None and (not decision.agreed or decision.hedged):
+            # The model contradicted itself — the mirror question answered
+            # differently, or the prose overrode evidence the same answer had
+            # just acknowledged. Both were measured against 26 correct answers
+            # without firing once, and together they caught both errors in the
+            # hard set, so the link is refused rather than merely queued.
+            # 26 is a small sample and this threshold is worth re-measuring as
+            # the store grows; what makes it the safe side either way is that a
+            # duplicate can be merged later and a merge cannot be undone.
+            log.info(
+                "refusing a link the model contradicted itself on",
+                extra={"entity_name": entity.canonical_name, "against": decision.counter},
+            )
+            link_risk = f"{RISK_LINK_CONTRADICTED} ({_why_unsure(decision)})"
+            entity = None
+            decision = replace(decision, match=None)
+        elif entity is not None and not decision.is_certain:
+            # Only self-reported confidence is left, and it has never once been
+            # seen to fire on a wrong answer. Too weak to refuse on, kept because
+            # queueing costs nothing.
+            link_risk = f"{RISK_UNSURE_LINK} ({_why_unsure(decision)})"
         else:
             link_risk = None
         if entity is None:
@@ -795,7 +960,12 @@ async def persist(
             counts["entities_linked"] += 1
             log.info(
                 "linked to an existing entity",
-                extra={"entity_name": entity.canonical_name, "why": link_reason},
+                extra={
+                    "entity_name": entity.canonical_name,
+                    "why": decision.reason,
+                    "against": decision.counter,
+                    "agreed": decision.agreed,
+                },
             )
 
         entity.mention_count += len(resolution.mentions)

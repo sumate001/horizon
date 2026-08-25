@@ -32,17 +32,29 @@ pytestmark = pytest.mark.asyncio
 
 
 class _StubClient:
-    """An Ollama client that answers with whatever the test hands it."""
+    """An Ollama client that answers with whatever the test hands it.
 
-    def __init__(self, payload=None, error: Exception | None = None) -> None:
-        self.payload, self.error = payload, error
-        self.messages = None
+    Each decision costs two calls — the question, then the same question with the
+    two sides exchanged — so payloads are consumed in order and the last one
+    repeats. `calls` keeps every prompt, because which of the two is being
+    inspected matters.
+    """
+
+    def __init__(self, *payloads, error: Exception | None = None) -> None:
+        self.payloads = list(payloads) or [None]
+        self.error = error
+        self.calls: list = []
+
+    @property
+    def messages(self):
+        return self.calls[0] if self.calls else None
 
     async def chat_json(self, messages, *, purpose="chat", model=None):
-        self.messages = messages
+        self.calls.append(messages)
         if self.error:
             raise self.error
-        return self.payload
+        index = min(len(self.calls) - 1, len(self.payloads) - 1)
+        return self.payloads[index]
 
 
 def _resolution(canonical: str, mentions: list[str], kind: str = "person") -> Resolution:
@@ -69,11 +81,11 @@ ANUTIN = ("อนุทิน ชาญวีรกูล", "person", ["อน�
 
 async def test_no_candidates_means_no_question_is_asked():
     """The common case by far, and it must not cost a model call."""
-    client = _StubClient(payload={"match": 0})
+    client = _StubClient({"match": 0})
 
-    picked, _, _ = await choose_existing(_resolution("ใครสักคน", ["ใครสักคน"]), [], client=client)
+    decision = await choose_existing(_resolution("ใครสักคน", ["ใครสักคน"]), [], client=client)
 
-    assert picked is None
+    assert decision.match is None
     assert client.messages is None
 
 
@@ -82,62 +94,62 @@ async def test_a_model_that_cannot_be_reached_does_not_merge():
     wrong merge is not. Whatever the index suggested stays a suggestion."""
     client = _StubClient(error=OllamaError("ollama is down"))
 
-    picked, _, reason = await choose_existing(
+    decision = await choose_existing(
         _resolution("ยิ่งชีพ อัชฌานนท์", ["ยิ่งชีพ อัชฌานนท์ (iLaw)"]), [ILAW], client=client
     )
 
-    assert picked is None
-    assert reason == RISK_LINK_UNDECIDED
+    assert decision.match is None
+    assert decision.reason == RISK_LINK_UNDECIDED
 
 
 async def test_a_candidate_that_was_never_offered_is_refused():
     """Honouring an out-of-range index would merge into whatever sits there."""
-    client = _StubClient(payload={"match": 7, "confidence": 1.0, "reason": "มั่นใจมาก"})
+    client = _StubClient({"match": 7, "confidence": 1.0, "reason": "มั่นใจมาก"})
 
-    picked, _, _ = await choose_existing(
+    decision = await choose_existing(
         _resolution("ยิ่งชีพ อัชฌานนท์", ["ยิ่งชีพ อัชฌานนท์"]), [ILAW], client=client
     )
 
-    assert picked is None
+    assert decision.match is None
 
 
 async def test_null_is_a_real_answer_not_a_missing_one():
     client = _StubClient(
-        payload={"match": None, "confidence": 0.9, "reason": "iLaw คือองค์กร ไม่ใช่ตัวบุคคล"}
+        {"match": None, "confidence": 0.9, "reason": "iLaw คือองค์กร ไม่ใช่ตัวบุคคล"}
     )
 
-    picked, confidence, reason = await choose_existing(
+    decision = await choose_existing(
         _resolution("ยิ่งชีพ อัชฌานนท์", ["ยิ่งชีพ อัชฌานนท์ (iLaw)"]), [ILAW], client=client
     )
 
-    assert picked is None
-    assert confidence == 0.9
-    assert "องค์กร" in reason
+    assert decision.match is None
+    assert decision.confidence == 0.9
+    assert "องค์กร" in decision.reason
 
 
 async def test_a_missing_confidence_is_not_read_as_certainty():
     """Written and queued, rather than written as though it were settled."""
-    client = _StubClient(payload={"match": 0, "reason": "น่าจะใช่"})
+    client = _StubClient({"match": 0, "reason": "น่าจะใช่"})
 
-    _, confidence, _ = await choose_existing(
+    decision = await choose_existing(
         _resolution("อนุทิน ชาญวีรกูล", ["อนุทิน ชาญวีรกูล"]), [ANUTIN], client=client
     )
 
-    assert confidence == 0.5
+    assert decision.confidence == 0.5
 
 
 async def test_a_match_is_returned_with_the_model_reasoning():
     client = _StubClient(
-        payload={"match": 0, "confidence": 0.95, "reason": "ชื่อเดียวกัน คนละการสะกด"}
+        {"match": 0, "confidence": 0.95, "reason": "ชื่อเดียวกัน คนละการสะกด"}
     )
 
-    picked, confidence, reason = await choose_existing(
+    decision = await choose_existing(
         _resolution("Anutin Charnvirakul", ["Anutin Charnvirakul"]), [ANUTIN], client=client
     )
 
-    assert picked == 0
-    assert confidence == 0.95
-    assert reason == "ชื่อเดียวกัน คนละการสะกด"
+    assert decision.match == 0
+    assert decision.confidence == 0.95
+    assert decision.reason == "ชื่อเดียวกัน คนละการสะกด"
 
 
 # ── what the model is actually shown ─────────────────────────────────────────
@@ -151,7 +163,7 @@ async def test_the_article_and_the_recorded_spellings_both_reach_the_model():
     organisation wearing a person's name — so the spellings go in as evidence,
     and the article says which one the story is about.
     """
-    client = _StubClient(payload={"match": None, "confidence": 1.0, "reason": "ไม่ใช่"})
+    client = _StubClient({"match": None, "confidence": 1.0, "reason": "ไม่ใช่"})
 
     await choose_existing(
         _resolution("ยิ่งชีพ อัชฌานนท์", ["ยิ่งชีพ อัชฌานนท์ (iLaw)"]),
@@ -166,10 +178,32 @@ async def test_the_article_and_the_recorded_spellings_both_reach_the_model():
     assert "ยิ่งชีพ อัชฌานนท์ (iLaw)" in sent
 
 
+async def test_a_place_qualifier_is_put_in_front_of_the_model_by_itself():
+    """The one error no signal caught, until the qualifier got its own line.
+
+    "กระทรวงการคลัง (สิงคโปร์)" was already in the prompt inside a surface form,
+    and the system prompt already said same-named agencies in different countries
+    are different things. The model linked Singapore's finance ministry to
+    Thailand's at confidence 1.00 with no counter-argument. Given the qualifier
+    as its own labelled field it at least says out loud that it is overriding it,
+    which the hedge check then catches.
+    """
+    client = _StubClient({"match": None, "confidence": 1.0, "reason": "คนละประเทศ"})
+
+    await choose_existing(
+        _resolution("กระทรวงการคลัง", ["กระทรวงการคลัง (สิงคโปร์)"], kind="org"),
+        [("กระทรวงการคลัง", "org", ["กระทรวงการคลัง", "Ministry of Finance"])],
+        client=client,
+    )
+
+    asked = "\n".join(m["content"] for m in client.calls[0])
+    assert "ตัวขยายที่กำกับชื่อใหม่: สิงคโปร์" in asked
+
+
 async def test_the_prompt_says_that_none_is_allowed():
     """A prompt reading "pick the best" turns a broad search into a broad merge,
     and the search is deliberately broad now."""
-    client = _StubClient(payload={"match": None, "confidence": 1.0, "reason": "ไม่ใช่"})
+    client = _StubClient({"match": None, "confidence": 1.0, "reason": "ไม่ใช่"})
 
     await choose_existing(_resolution("ก", ["ก"]), [ILAW], client=client)
 
@@ -260,7 +294,7 @@ async def test_persist_does_not_merge_when_the_model_says_no():
     """
     stored = _stored("iLaw", "org", ["ilaw", "ไอลอว์"])
     session = _StubSession([stored])
-    client = _StubClient(payload={"match": None, "confidence": 1.0, "reason": "คนละสิ่ง"})
+    client = _StubClient({"match": None, "confidence": 1.0, "reason": "คนละสิ่ง"})
 
     counts = await persist(
         session,
@@ -278,7 +312,7 @@ async def test_persist_does_not_merge_when_the_model_says_no():
 async def test_persist_merges_when_the_model_says_yes():
     stored = _stored("อนุทิน ชาญวีรกูล", "person", ["อนุทินชาญวีรกูล"])
     session = _StubSession([stored])
-    client = _StubClient(payload={"match": 0, "confidence": 1.0, "reason": "คนเดียวกัน"})
+    client = _StubClient({"match": 0, "confidence": 1.0, "reason": "คนเดียวกัน"})
 
     counts = await persist(
         session,
@@ -293,10 +327,16 @@ async def test_persist_merges_when_the_model_says_yes():
     assert stored.review_status == "auto"
 
 
-async def test_a_merge_the_model_was_unsure_of_is_written_and_queued():
+async def test_a_weak_confidence_queues_the_merge_but_does_not_stop_it():
+    """The model's own number is the only signal not strong enough to refuse on.
+
+    Measured three separate times on this corpus it has never once fired on a
+    wrong answer — it comes back 1.0 whether the answer is right or not — so it
+    queues and nothing more. It is kept because queueing costs nothing.
+    """
     stored = _stored("อนุทิน ชาญวีรกูล", "person", ["อนุทินชาญวีรกูล"])
     session = _StubSession([stored])
-    client = _StubClient(payload={"match": 0, "confidence": 0.4, "reason": "ไม่ค่อยแน่ใจ"})
+    client = _StubClient({"match": 0, "confidence": 0.4, "reason": "ตรงกัน"})
 
     counts = await persist(
         session, uuid.uuid4(), [_resolution("อนุทิน", ["อนุทิน"])], client=client
@@ -304,7 +344,98 @@ async def test_a_merge_the_model_was_unsure_of_is_written_and_queued():
 
     assert counts["entities_linked"] == 1
     assert stored.review_status == "needs_review"
-    assert stored.risk == RISK_UNSURE_LINK
+    assert stored.risk.startswith(RISK_UNSURE_LINK)
+    assert "โมเดลบอกเองว่าไม่มั่นใจ" in stored.risk
+
+
+@pytest.mark.parametrize(
+    "first,second,objection",
+    [
+        # the mirror question answered differently. "Is the same thing as" is
+        # symmetric, so one of the two answers is certainly wrong, and nothing
+        # says which — this is the position-vs-officer error from the hard set
+        (
+            {"match": 0, "confidence": 1.0, "reason": "ตรงกัน"},
+            {"match": None, "confidence": 1.0, "reason": "ตำแหน่งไม่ใช่ตัวบุคคล"},
+            "ถามกลับด้านแล้วตอบไม่ตรงกัน",
+        ),
+        # it overrode evidence the same sentence had just acknowledged — the
+        # Singapore ministry error, answered at a self-reported 1.00
+        (
+            {
+                "match": 0,
+                "confidence": 1.0,
+                "reason": "เป็นหน่วยงานเดียวกัน แม้ในข่าวจะระบุว่าเป็นของสิงคโปร์",
+            },
+            {"match": 0, "confidence": 1.0, "reason": "ตรงกัน"},
+            "เหตุผลมีคำแบ่งรับแบ่งสู้",
+        ),
+    ],
+)
+async def test_a_self_contradicted_link_is_refused_not_merely_queued(
+    first, second, objection
+):
+    """Both errors in the hard set had this shape, and neither had a low score.
+
+    Refusing leaves a duplicate the repair pass can merge; accepting leaves a
+    merge nothing can undo. Measured over 26 correct answers neither signal
+    fired once, so the caution is close to free — and the asymmetry is what
+    makes it the right side to err on even if that rate rises.
+    """
+    stored = _stored("แม่ทัพภาคที่ 4", "person", ["แม่ทัพภาคที่4"])
+    session = _StubSession([stored])
+    client = _StubClient(first, second)
+
+    counts = await persist(
+        session, uuid.uuid4(), [_resolution("แม่ทัพภาคที่ 4", ["แม่ทัพภาคที่ 4"])], client=client
+    )
+
+    assert counts["entities_linked"] == 0
+    assert counts["entities_new"] == 1
+    assert stored.mention_count == 9
+    created = next(obj for obj in session.added if isinstance(obj, Entity))
+    assert created.review_status == "needs_review"
+    assert objection in created.risk
+
+
+async def test_an_answer_that_survives_all_three_is_written_without_a_flag():
+    """The queue is only worth reading if agreement stays quiet."""
+    stored = _stored("อนุทิน ชาญวีรกูล", "person", ["อนุทินชาญวีรกูล"])
+    session = _StubSession([stored])
+    client = _StubClient({"match": 0, "confidence": 1.0, "reason": "ชื่อตรงกันทุกตัวอักษร"})
+
+    await persist(session, uuid.uuid4(), [_resolution("อนุทิน", ["อนุทิน"])], client=client)
+
+    assert stored.review_status == "auto"
+    assert stored.risk is None
+
+
+async def test_the_mirror_question_exchanges_the_two_sides():
+    """Resampling would prove nothing: the client runs at temperature 0, so the
+    identical prompt returns the identical answer. The perturbation has to change
+    the question."""
+    client = _StubClient({"match": 0, "confidence": 1.0, "reason": "ตรงกัน"})
+
+    await choose_existing(
+        _resolution("Anutin Charnvirakul", ["Anutin Charnvirakul"]), [ANUTIN], client=client
+    )
+
+    assert len(client.calls) == 2
+    asked, mirrored = ("\n".join(m["content"] for m in call) for call in client.calls)
+    assert "ชื่อใหม่ที่เจอในข่าวนี้: Anutin Charnvirakul" in asked
+    assert "ชื่อใหม่ที่เจอในข่าวนี้: อนุทิน ชาญวีรกูล" in mirrored
+    assert "Anutin Charnvirakul" in mirrored.split("ตัวตนที่มีอยู่แล้วในระบบ:")[1]
+
+
+async def test_the_model_must_write_the_case_against_before_it_decides():
+    """Generation is left to right, so the objection has to come first in the
+    schema — asked afterwards it would be justifying a decision already made."""
+    client = _StubClient({"match": 0, "confidence": 1.0, "reason": "ตรงกัน"})
+
+    await choose_existing(_resolution("ก", ["ก"]), [ANUTIN], client=client)
+
+    system = client.calls[0][0]["content"]
+    assert system.index('"counter"') < system.index('"match"')
 
 
 async def test_an_unreachable_model_leaves_a_duplicate_that_says_so():

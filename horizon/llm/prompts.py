@@ -314,6 +314,13 @@ def entity_messages(members: list[str], *, context: str | None = None) -> list[d
 #: wrong: ศอ.บต. absorbed into the man who runs it, ยิ่งชีพ อัชฌานนท์ into iLaw,
 #: มณเฑียร สงฆ์ประชา into his party, and one minister's post carried over to the
 #: next person to hold it.
+#:
+#: `counter` is answered before `match` and the order is the point: generation is
+#: left to right, so writing the strongest objection first makes the model reach
+#: the decision having already stated what argues against it. Asked afterwards it
+#: would be justifying an answer it had already given. It also gives the caller
+#: something to read — measured on this corpus, "how sure are you?" comes back
+#: 1.0 in 98% of answers, so the prose is where any doubt actually shows up.
 ENTITY_LINK_SYSTEM = """คุณคือบรรณารักษ์ข้อมูลของกองบรรณาธิการข่าว
 ระบบเจอชื่อใหม่ในข่าว และดึงตัวตนที่ "อาจจะ" เป็นสิ่งเดียวกันขึ้นมาให้เลือก
 งานของคุณคือตัดสินว่าชื่อใหม่นี้คือตัวตนใดในรายการ หรือไม่ใช่สักตัว
@@ -340,17 +347,31 @@ ENTITY_LINK_SYSTEM = """คุณคือบรรณารักษ์ข้�
 "ประเภทที่ระบบจัดไว้" เป็นเพียงการเดาของขั้นตอนก่อนหน้า ไม่ใช่หลักฐาน
 ถ้าประเภทไม่ตรงกันแต่หลักฐานอย่างอื่นบอกว่าเป็นสิ่งเดียวกัน ให้เชื่อหลักฐาน
 
-ตอบ JSON เดียวเท่านั้น:
-{"match": เลขลำดับของตัวเลือก หรือ null, "confidence": 0.0-1.0,
+ตอบ JSON เดียวเท่านั้น และต้องเขียน counter ก่อน match เสมอ:
+{"counter": "เหตุผลที่หนักที่สุดที่บอกว่า *ไม่ใช่* สิ่งเดียวกัน ถ้าหาไม่ได้จริง ๆ ให้ตอบ 'ไม่มี'",
+ "match": เลขลำดับของตัวเลือก หรือ null, "confidence": 0.0-1.0,
  "reason": "เหตุผลสั้น ๆ ภาษาไทย"}"""
 
 ENTITY_LINK_USER = """{context}ชื่อใหม่ที่เจอในข่าวนี้: {name}
 ประเภทที่ระบบจัดไว้: {entity_type}
 ตัวสะกดที่ข่าวนี้ใช้:
 {mentions}
-
+{qualifiers}
 ตัวตนที่มีอยู่แล้วในระบบ:
 {candidates}"""
+
+#: The qualifier is already inside the surface form — "กระทรวงการคลัง (สิงคโปร์)"
+#: is right there in the list — and the system prompt already says same-named
+#: agencies in different countries are different things. The model read both and
+#: linked Singapore's finance ministry to Thailand's at confidence 1.00 with no
+#: counter-argument, the one error in testing that no signal caught. So the
+#: qualifier gets its own line: not new evidence, the same evidence given the
+#: prominence the string rules used to give it.
+QUALIFIER_LINE = """
+ตัวขยายที่กำกับชื่อใหม่: {qualifiers}
+ตัวขยายแบบนี้คือสิ่งที่แยกของสองอย่างที่ชื่อเหมือนกันออกจากกัน
+ถ้าตัวเลือกในระบบไม่ได้ถูกกำกับด้วยตัวขยายเดียวกัน ให้ถือว่าเป็นคนละสิ่ง
+"""
 
 
 def entity_link_messages(
@@ -360,6 +381,7 @@ def entity_link_messages(
     *,
     entity_type: str = "unknown",
     context: str | None = None,
+    qualifiers: list[str] | None = None,
 ) -> list[dict[str, str]]:
     """Build the linking prompt.
 
@@ -383,6 +405,11 @@ def entity_link_messages(
                 name=name,
                 entity_type=entity_type,
                 mentions="\n".join(f"- {m}" for m in mentions[:8]),
+                qualifiers=(
+                    QUALIFIER_LINE.format(qualifiers=", ".join(sorted(qualifiers)))
+                    if qualifiers
+                    else ""
+                ),
                 candidates=listing,
             ),
         },
