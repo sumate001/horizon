@@ -507,3 +507,16 @@ def test_a_confident_model_does_not_override_a_risky_shape():
         "groups": [{"canonical": "iLaw", "type": "org", "members": [0, 1], "confidence": 1.0}]
     }
     assert _apply(members, payload)[0].needs_review
+
+
+def test_names_the_model_dropped_reach_the_queue_with_a_reason():
+    """They already reached a human — with an empty reason column, which says
+    something is wrong without saying what. Nine were sitting there like that."""
+    from horizon.pipeline.entities import RISK_NAMES_DROPPED
+
+    payload = {"groups": [{"canonical": "ก", "type": "person", "members": [0], "confidence": 1.0}]}
+    resolutions = _apply(["ก", "ข"], payload)
+
+    dropped = next(r for r in resolutions if "ข" in r.mentions)
+    assert dropped.needs_review
+    assert dropped.risk == RISK_NAMES_DROPPED

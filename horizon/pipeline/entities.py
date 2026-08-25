@@ -85,6 +85,7 @@ RISK_BRACKET_MERGE = "รวมชื่อที่สะกดต่างก�
 RISK_UNSURE_LINK = "รวมกับตัวตนเดิมโดยที่โมเดลยังไม่มั่นใจ"
 RISK_LINK_CONTRADICTED = "ไม่รวมกับตัวตนเดิม เพราะโมเดลตอบขัดกันเอง อาจเป็นตัวตนซ้ำ"
 RISK_LINK_UNDECIDED = "ยังไม่ได้ตัดสินว่าซ้ำกับตัวตนเดิมหรือไม่ เพราะโมเดลไม่ตอบ"
+RISK_NAMES_DROPPED = "โมเดลไม่ได้จัดชื่อเหล่านี้เข้ากลุ่มใดเลย ยังไม่มีใครตัดสินว่ามันคืออะไร"
 RISK_UNRELATED_NAMES = "ชื่อที่ปรากฏในตัวตนนี้ไม่เชื่อมถึงกัน อาจเป็นคนละสิ่งที่ถูกรวมไว้ด้วยกัน"
 RISK_TYPE_MISMATCH = "เป็นคนละประเภทกัน เช่น บุคคลกับองค์กร"
 RISK_DIFFERENT_ITEMS = "ผูกกับรายการวิกิดาต้าคนละรายการ"
@@ -546,6 +547,10 @@ def _apply(members: list[str], payload: dict) -> list[Resolution]:
         log.warning("entity adjudication dropped mentions", extra={"missed": missed})
         fallback = rule_resolution(missed)
         fallback.confidence = 0.0
+        # Say so in the queue. These reached a human already, but with an empty
+        # reason column — which tells a reviewer that something is wrong without
+        # telling them what, and nine of them were sitting there like that.
+        fallback.risk = RISK_NAMES_DROPPED
         out.append(fallback)
     return out
 

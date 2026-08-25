@@ -18,6 +18,14 @@ Three outcomes, and only the first two are automatic:
             ชาญวีรกูล , นายกรัฐมนตรี" were two people, and only one of them ever
             got a Wikidata id.
 
+  cleared   the entity is queued only for a reason no code writes any more. The
+            string rule that guessed whether a cross-event merge was safe was
+            replaced by asking the model with the article in hand, and 38 of the
+            67 entities in the queue still carried its verdict. A queue that is
+            mostly stale is a queue people stop reading, so a stale reason is
+            withdrawn — but only when the current checks pass, and only that one
+            reason. A flag a human or current code wrote is never touched.
+
   flagged   the entity's own surface forms no longer touch each other, so it is
             holding two different things — one man had absorbed the whole agency
             he runs. Splitting is not done here. It needs someone who can read
@@ -45,6 +53,7 @@ from ..logging import setup_logging
 from ..models import Entity, EventEntity
 from .entities import (
     RISK_DIFFERENT_ITEMS,
+    RISK_JOINED_ON_BRACKET,
     RISK_TYPE_MISMATCH,
     RISK_UNRELATED_NAMES,
     UNIDENTIFIABLE_RISKS,
@@ -160,7 +169,7 @@ def _flag(entity: Entity, reason: str, *, apply: bool, **detail) -> None:
 
 
 async def run(*, apply: bool = False) -> dict[str, int]:
-    counts = {"checked": 0, "renamed": 0, "merged": 0, "flagged": 0, "refused": 0}
+    counts = {"checked": 0, "renamed": 0, "merged": 0, "flagged": 0, "refused": 0, "cleared": 0}
 
     async with session_scope() as session:
         forms_by_entity = await _surface_forms(session)
@@ -213,6 +222,16 @@ async def run(*, apply: bool = False) -> dict[str, int]:
                 )
                 continue
 
+            if entity.review_status == "needs_review" and entity.risk == RISK_JOINED_ON_BRACKET:
+                # It got here, so the split check just passed and no current rule
+                # objects to it. The only thing keeping it in the queue is a
+                # verdict from a rule that no longer exists.
+                counts["cleared"] += 1
+                log.info("withdrawing a retired flag", extra={"entity_name": name})
+                if apply:
+                    entity.review_status = "auto"
+                    entity.risk = None
+
             twin = next((by_alias[a] for a in aliases if a in by_alias), None)
             if twin is not None and twin.id != entity.id:
                 refusal = _may_merge(twin, entity)
@@ -255,7 +274,8 @@ def main() -> None:
     print(
         f"{'applied' if args.apply else 'dry run'}: checked={counts['checked']} "
         f"renamed={counts['renamed']} merged={counts['merged']} "
-        f"flagged={counts['flagged']} refused={counts['refused']}"
+        f"flagged={counts['flagged']} cleared={counts['cleared']} "
+        f"refused={counts['refused']}"
     )
 
 
