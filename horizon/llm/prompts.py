@@ -302,6 +302,93 @@ def entity_messages(members: list[str], *, context: str | None = None) -> list[d
     ]
 
 
+# ── Step 3.5b — linking a new mention to an entity already in the store ──────
+
+#: The candidates arrive from an alias index, which matches characters and knows
+#: nothing about the world. That is deliberate — the index only has to be
+#: generous, because this prompt is what decides. So the list it produces is
+#: mostly wrong by construction, and a prompt that reads as "pick the best one"
+#: would turn a broad search into a broad merge.
+#:
+#: Every "คนละสิ่ง" line below is a merge this system actually made and got
+#: wrong: ศอ.บต. absorbed into the man who runs it, ยิ่งชีพ อัชฌานนท์ into iLaw,
+#: มณเฑียร สงฆ์ประชา into his party, and one minister's post carried over to the
+#: next person to hold it.
+ENTITY_LINK_SYSTEM = """คุณคือบรรณารักษ์ข้อมูลของกองบรรณาธิการข่าว
+ระบบเจอชื่อใหม่ในข่าว และดึงตัวตนที่ "อาจจะ" เป็นสิ่งเดียวกันขึ้นมาให้เลือก
+งานของคุณคือตัดสินว่าชื่อใหม่นี้คือตัวตนใดในรายการ หรือไม่ใช่สักตัว
+
+ตัวเลือกถูกดึงมาด้วยการชนตัวอักษร ไม่ใช่ด้วยความหมาย ส่วนใหญ่จึงเป็นคนละสิ่งกัน
+การตอบ null คือคำตอบที่ถูกบ่อยกว่าที่คิด และการไม่รวมดีกว่ารวมผิดเสมอ
+เพราะประวัติที่ผิดจะไปโผล่ในแฟ้มคดีโดยไม่มีใครรู้ว่ามันเคยเป็นการเดา
+
+คนละสิ่ง — ระวังเป็นพิเศษ เพราะตัวอักษรของกรณีพวกนี้ชนกันเสมอ:
+- องค์กร กับ คนที่ทำงานหรือเป็นผู้บริหารขององค์กรนั้น
+- ตำแหน่ง กับ ชื่อคนที่ดำรงตำแหน่งนั้น (ตำแหน่งเปลี่ยนคนได้)
+- ประเทศ กับ ทีมชาติของประเทศนั้น
+- หน่วยงานชื่อเหมือนกันแต่คนละประเทศ
+- คนละคนที่บังเอิญชื่อหรือนามสกุลเหมือนกัน
+
+สิ่งเดียวกัน:
+- ชื่อเดียวกันเขียนคนละภาษา คนละการสะกด หรือใช้ตัวย่อ
+- ชื่อเต็มกับชื่อเล่นของคนคนเดียวกัน เมื่อบริบทข่าวยืนยันว่าใช่
+- ชื่อต่างประเทศที่ถอดเสียงเป็นอักษรไทยหรืออังกฤษไม่ตรงกัน เช่น "ตุรเกีย/ตุรกี"
+  "Kechin/Keshin" แต่ละสำนักข่าวสะกดไม่เหมือนกันเป็นเรื่องปกติ ไม่ใช่คนละสิ่ง
+
+ดู "ตัวสะกดที่เคยเจอ" ของแต่ละตัวเลือกเป็นหลักฐาน ไม่ใช่ดูแค่ชื่อหลัก
+
+"ประเภทที่ระบบจัดไว้" เป็นเพียงการเดาของขั้นตอนก่อนหน้า ไม่ใช่หลักฐาน
+ถ้าประเภทไม่ตรงกันแต่หลักฐานอย่างอื่นบอกว่าเป็นสิ่งเดียวกัน ให้เชื่อหลักฐาน
+
+ตอบ JSON เดียวเท่านั้น:
+{"match": เลขลำดับของตัวเลือก หรือ null, "confidence": 0.0-1.0,
+ "reason": "เหตุผลสั้น ๆ ภาษาไทย"}"""
+
+ENTITY_LINK_USER = """{context}ชื่อใหม่ที่เจอในข่าวนี้: {name}
+ประเภทที่ระบบจัดไว้: {entity_type}
+ตัวสะกดที่ข่าวนี้ใช้:
+{mentions}
+
+ตัวตนที่มีอยู่แล้วในระบบ:
+{candidates}"""
+
+
+def entity_link_messages(
+    name: str,
+    mentions: list[str],
+    candidates: list[tuple[str, str, list[str]]],
+    *,
+    entity_type: str = "unknown",
+    context: str | None = None,
+) -> list[dict[str, str]]:
+    """Build the linking prompt.
+
+    `candidates` is (canonical name, type, surface forms seen). The surface
+    forms matter more than the name: an entity called "ยิ่งชีพ อัชฌานนท์" whose
+    recorded spellings are "iLaw" and "ไอลอว์" is an organisation wearing a
+    person's name, and only the spellings show it.
+    """
+    listing = "\n".join(
+        f"{index}. {canonical} [{kind}] — ตัวสะกดที่เคยเจอ: "
+        + (", ".join(forms[:4]) if forms else "(ไม่มีบันทึก)")
+        for index, (canonical, kind, forms) in enumerate(candidates)
+    )
+    prefix = f"บริบทของข่าว: {context.strip()}\n\n" if context and context.strip() else ""
+    return [
+        {"role": "system", "content": ENTITY_LINK_SYSTEM},
+        {
+            "role": "user",
+            "content": ENTITY_LINK_USER.format(
+                context=prefix,
+                name=name,
+                entity_type=entity_type,
+                mentions="\n".join(f"- {m}" for m in mentions[:8]),
+                candidates=listing,
+            ),
+        },
+    ]
+
+
 # ── Step 3.6 — Wikidata linking ──────────────────────────────────────────────
 
 #: The instruction to answer "none" is load-bearing, not politeness. Measured on

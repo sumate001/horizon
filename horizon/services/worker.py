@@ -237,7 +237,17 @@ class ArticleWorker:
                 model=settings.entity_model,
             )
             async with session_scope() as session:
-                counts = await persist_entities(session, event_id, resolutions)
+                # The summary goes in twice on purpose: once to group the names
+                # in this article, and again to decide whether any of them is
+                # someone the store already knows. The second question is the
+                # one that cannot be answered from the names alone.
+                counts = await persist_entities(
+                    session,
+                    event_id,
+                    resolutions,
+                    context=extraction.summary,
+                    model=settings.entity_model,
+                )
         except Exception as exc:  # noqa: BLE001 — one event must never kill the loop
             log.warning(
                 "entity resolution failed",

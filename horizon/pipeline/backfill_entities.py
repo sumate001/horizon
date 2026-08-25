@@ -61,7 +61,13 @@ async def run(limit: int) -> dict[str, int]:
                 list(actors), context=summary, model=settings.entity_model
             )
             async with session_scope() as session:
-                counts = await persist(session, event_id, resolutions)
+                counts = await persist(
+                    session,
+                    event_id,
+                    resolutions,
+                    context=summary,
+                    model=settings.entity_model,
+                )
         except Exception as exc:  # noqa: BLE001 — one bad event must not end the run
             totals["failed"] += 1
             log.warning(

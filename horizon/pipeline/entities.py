@@ -7,34 +7,36 @@ collapses those into one entity with one id, so everything downstream —
 clustering, weak signals, and OSINT//DESK's cross-case memory — can ask "have we
 seen this person before?" and get a truthful answer.
 
-Two stages, in this order for a reason measured on 2,660 real mentions:
+**Rules search, the model decides.** That division is the whole design, and it
+was arrived at the hard way: every wrong merge this system produced came from a
+step where a string comparison was allowed to decide, and every rule added to
+prevent one was a patch on that mistake rather than a fix for it.
 
-  Rules   collapse spelling variants. 96% precise on 84 hand-labelled groups and
-          30/30 on a random sample of the tail. Free, deterministic, and they
-          hand the model clean groups instead of 2,204 loose strings.
+  `group_by_rules`   which mentions in *this article* are worth showing the
+                     model together. Cheap, deterministic, generous.
 
-  Model   decides what the rules structurally cannot, because the question is
-          about the world rather than about characters: a country is not its
-          football team, an organisation is not its director, and two ministries
-          with the same Thai name are not the same ministry if one is
-          Singapore's. 83/84 against the same labels, and the one disagreement
-          was the model being stricter than the label.
+  `adjudicate`       the model says which of them are the same thing and what
+                     kind of thing. 83/84 against hand labels on 84 groups.
 
-The parenthetical is the crux. Thai news packs three different things in there
-and only two of them are names:
+  `_candidates`      which of ~1,400 stored entities *might* be this one. A
+                     search, not an answer — the store will not fit in a prompt,
+                     so something cheap has to shortlist, and this is it.
 
-  STRONG  a transliteration or an abbreviation — "(Anutin Charnvirakul)",
-          "(กกต.)". Safe to merge on.
-  WEAK    a nickname — "(เท้ง)", "(บิ๊กดุลย์)". Never merges, because nicknames
-          collide across people. It stays out of `aliases` for that reason:
-          `aliases` is the lookup key on ingest, so anything put there merges by
-          definition. "รัฐบาลไทย (ครม.)" and "คณะรัฐมนตรี (ครม.)" fused on a weak
-          form alone. The surface forms are kept on `event_entities` regardless,
-          which is where a nickname is still readable.
+  `choose_existing`  the model reads the article and the candidates' recorded
+                     spellings, and says which one it is, or none. This is the
+                     merge that matters: "the same person as last Tuesday" is a
+                     claim about the world, and characters cannot check it.
+
+The parenthetical still gets classified, but only to build search keys, and the
+cost of being wrong is now a candidate the model declines rather than a merge
+nobody sees:
+
+  STRONG  a transliteration or an abbreviation — "(Anutin Charnvirakul)", "(กกต.)"
+  WEAK    a nickname — "(เท้ง)", "(บิ๊กดุลย์)". Kept out of `aliases`, because
+          nicknames collide across people and a shortlist built from them is
+          mostly noise. Still readable on `event_entities.surface_form`.
   DROP    a role, a place, a legal form — "(รองนายกรัฐมนตรี)", "(สิงคโปร์)",
-          "(มหาชน)". Not a name at all. Merging on these produced
-          "เอกนิติ นิติทัณฑ์ประภาศ + ยศชนัน วงศ์สวัสดิ์" — two different deputy
-          prime ministers fused into one person.
+          "(มหาชน)". Not a name at all, so not a search key either.
 """
 
 import logging
@@ -43,7 +45,7 @@ import unicodedata
 from dataclasses import dataclass, field
 
 from ..llm.ollama import OllamaClient, OllamaError, get_ollama
-from ..llm.prompts import entity_messages
+from ..llm.prompts import entity_link_messages, entity_messages
 
 log = logging.getLogger(__name__)
 
@@ -56,8 +58,13 @@ REVIEW_THRESHOLD = 0.75
 
 #: What a reviewer is being asked to judge, in Thai, written once so the pipeline
 #: and the repair pass mean the same thing by it.
+#: No longer written: this was the string rule's guess at whether a cross-event
+#: merge was safe, and `choose_existing` now asks the model instead. Kept because
+#: rows in the store still carry it and a reviewer still has to read them.
 RISK_JOINED_ON_BRACKET = "ผูกกับตัวตนที่มีอยู่ผ่านวงเล็บ ไม่ใช่จากชื่อที่ตรงกัน"
 RISK_BRACKET_MERGE = "รวมชื่อที่สะกดต่างกันโดยอาศัยวงเล็บเป็นตัวเชื่อม ไม่ใช่จากชื่อที่ตรงกัน"
+RISK_UNSURE_LINK = "รวมกับตัวตนเดิมโดยที่โมเดลยังไม่มั่นใจ"
+RISK_LINK_UNDECIDED = "ยังไม่ได้ตัดสินว่าซ้ำกับตัวตนเดิมหรือไม่ เพราะโมเดลไม่ตอบ"
 RISK_UNRELATED_NAMES = "ชื่อที่ปรากฏในตัวตนนี้ไม่เชื่อมถึงกัน อาจเป็นคนละสิ่งที่ถูกรวมไว้ด้วยกัน"
 RISK_TYPE_MISMATCH = "เป็นคนละประเภทกัน เช่น บุคคลกับองค์กร"
 RISK_DIFFERENT_ITEMS = "ผูกกับรายการวิกิดาต้าคนละรายการ"
@@ -570,33 +577,155 @@ async def resolve(
 # ── persistence ──────────────────────────────────────────────────────────────
 
 
-async def _find_existing(session, aliases: list[str]):
-    """An entity already answering to one of these surface forms.
+#: How many stored entities to put in front of the model. The index is allowed
+#: to be generous now that it no longer decides, but a list this long is already
+#: past the point where more candidates buy anything: on this corpus a mention
+#: overlaps at most a handful of entities, and the rest of the array is noise the
+#: model has to read past.
+MAX_CANDIDATES = 5
+
+
+async def _candidates(session, aliases: list[str], limit: int = MAX_CANDIDATES):
+    """Entities that *might* be this one — a search, not an answer.
 
     Array overlap against the GIN index, so this stays a lookup rather than a
-    scan as the store grows. Rejected entities are excluded: an analyst has
-    already said this grouping was wrong, and matching it again would undo them.
+    scan as the store grows.
+
+    Two kinds of entity are withheld. Rejected ones, because an analyst has
+    already said the grouping was wrong and matching it again would undo them.
+    And ones flagged as holding two different things, because there is no right
+    answer to give about those: asked whether a mention of นันทพงศ์ สุวรรณรัตน์
+    was the entity that had swallowed ศอ.บต., the model said yes — reasonably,
+    since the row really does answer to both. Offering a corrupt row as a
+    candidate can only spread it, so the mention starts a clean entity and the
+    corrupt one waits for the human it is already queued for.
+
+    This used to return one row and that row was merged into, which made the
+    index the decision-maker. Character overlap cannot tell a person from the
+    agency they run, so every wrong merge this system produced came from here —
+    and every rule written to prevent one was a patch on a search being asked to
+    also be a judgement.
     """
-    from sqlalchemy import select
+    from sqlalchemy import or_, select
 
     from ..models import Entity
 
     if not aliases:
-        return None
+        return []
+    return list(
+        (
+            await session.execute(
+                select(Entity)
+                .where(Entity.aliases.overlap(aliases))
+                .where(Entity.review_status != "rejected")
+                # NULL is the common case and `NOT IN` against it is NULL, which
+                # would withhold every healthy entity instead of the sick ones.
+                .where(
+                    or_(Entity.risk.is_(None), Entity.risk.notin_(UNIDENTIFIABLE_RISKS))
+                )
+                .order_by(Entity.mention_count.desc())
+                .limit(limit)
+            )
+        ).scalars()
+    )
+
+
+async def _surface_forms_of(session, entity_ids: list) -> dict:
+    """A few real spellings per candidate, as the evidence the model reads.
+
+    The canonical name alone is not enough to judge by, because the wrong merges
+    are exactly the ones where it is misleading: an entity named "ยิ่งชีพ
+    อัชฌานนท์" whose recorded spellings are "iLaw" and "ไอลอว์" is an
+    organisation, and only the spellings say so.
+    """
+    from sqlalchemy import select
+
+    from ..models import EventEntity
+
+    if not entity_ids:
+        return {}
     rows = (
         await session.execute(
-            select(Entity)
-            .where(Entity.aliases.overlap(aliases))
-            .where(Entity.review_status != "rejected")
-            .order_by(Entity.mention_count.desc())
-            .limit(1)
+            select(EventEntity.entity_id, EventEntity.surface_form)
+            .where(EventEntity.entity_id.in_(entity_ids))
+            .distinct()
         )
-    ).scalars()
-    return next(iter(rows), None)
+    ).all()
+    forms: dict = {}
+    for entity_id, surface in rows:
+        forms.setdefault(entity_id, []).append(surface)
+    return forms
 
 
-async def persist(session, event_id, resolutions: list[Resolution]) -> dict[str, int]:
+async def choose_existing(
+    resolution: Resolution,
+    candidates: list[tuple[str, str, list[str]]],
+    *,
+    context: str | None = None,
+    client: OllamaClient | None = None,
+    model: str | None = None,
+) -> tuple[int | None, float, str]:
+    """Which candidate this mention is, if any. `(index, confidence, reason)`.
+
+    Takes plain data rather than ORM rows so the decision can be tested without
+    a database — this is the judgement the whole step exists to make, and it
+    should not need Postgres running to check.
+
+    An index outside the list is refused rather than clamped: a model that names
+    a candidate that was not offered has not read the list, and honouring it
+    would merge into whatever happens to sit at that position.
+    """
+    if not candidates:
+        return None, 1.0, "ไม่มีตัวตนเดิมที่ใกล้เคียง"
+    client = client or get_ollama()
+    try:
+        payload = await client.chat_json(
+            entity_link_messages(
+                resolution.canonical,
+                resolution.mentions,
+                candidates,
+                entity_type=resolution.entity_type,
+                context=context,
+            ),
+            purpose="entity_link",
+            model=model,
+        )
+    except (OllamaError, ValueError) as exc:
+        log.warning("entity link adjudication failed", extra={"error": str(exc)})
+        return None, 0.0, RISK_LINK_UNDECIDED
+
+    match = payload.get("match")
+    if not isinstance(match, int) or not 0 <= match < len(candidates):
+        return None, _as_confidence(payload.get("confidence")), str(
+            payload.get("reason") or "ไม่ตรงกับตัวตนใดที่มีอยู่"
+        )
+    return (
+        match,
+        _as_confidence(payload.get("confidence")),
+        str(payload.get("reason") or "ตรงกับตัวตนที่มีอยู่"),
+    )
+
+
+def _as_confidence(value) -> float:
+    """A missing or unparsable confidence means the model did not commit."""
+    return float(value) if isinstance(value, (int, float)) else 0.5
+
+
+async def persist(
+    session,
+    event_id,
+    resolutions: list[Resolution],
+    *,
+    context: str | None = None,
+    client: OllamaClient | None = None,
+    model: str | None = None,
+) -> dict[str, int]:
     """Write resolutions as entities and link them to the event.
+
+    The cross-event merge happens here, and it is the one that matters: an
+    article rarely spells a name two ways, but "the same person as last Tuesday"
+    is a claim about the world. It is now made by the model with the article in
+    hand, over candidates an index merely suggested.
 
     Generic nouns are counted and skipped. "ตำรวจ" is not a thing anyone can
     investigate, and letting it into the store would make it the most connected
@@ -615,16 +744,28 @@ async def persist(session, event_id, resolutions: list[Resolution]) -> dict[str,
             counts["generic_skipped"] += 1
             continue
 
-        entity = await _find_existing(session, resolution.aliases)
-        # The risky merge is almost never inside one article — an article rarely
-        # spells the same name two ways. It happens here, when a new mention is
-        # attached to an entity seen days ago. If the two agree on a head form
-        # this is the same name written twice; if they only meet through a
-        # bracket, it is the shape that produced "iLaw" + its director.
-        joined_on_bracket = entity is not None and not (
-            {key for raw in resolution.mentions for key in {parse(raw).head}}
-            & set(entity.aliases)
+        nearby = await _candidates(session, resolution.aliases)
+        forms = await _surface_forms_of(session, [row.id for row in nearby])
+        picked, link_confidence, link_reason = await choose_existing(
+            resolution,
+            [(row.canonical_name, row.entity_type, forms.get(row.id, [])) for row in nearby],
+            context=context,
+            client=client,
+            model=model,
         )
+        entity = nearby[picked] if picked is not None else None
+        if picked is None and link_reason == RISK_LINK_UNDECIDED:
+            # The model could not be reached and candidates were on the table.
+            # Refusing to merge makes a duplicate; merging on the index alone
+            # makes false history. The repair pass can undo the first and nobody
+            # can undo the second, so this is not a close call.
+            link_risk = RISK_LINK_UNDECIDED
+        elif entity is not None and link_confidence < REVIEW_THRESHOLD:
+            # Written and queued rather than dropped: the alternative is a
+            # duplicate that nobody is told about.
+            link_risk = RISK_UNSURE_LINK
+        else:
+            link_risk = None
         if entity is None:
             entity = Entity(
                 id=_uuid.uuid4(),
@@ -652,12 +793,14 @@ async def persist(session, event_id, resolutions: list[Resolution]) -> dict[str,
                 entity.entity_type = resolution.entity_type
             entity.confidence = max(entity.confidence, resolution.confidence)
             counts["entities_linked"] += 1
+            log.info(
+                "linked to an existing entity",
+                extra={"entity_name": entity.canonical_name, "why": link_reason},
+            )
 
         entity.mention_count += len(resolution.mentions)
         entity.last_seen = datetime.now(UTC)
-        risk = resolution.risk or (
-            RISK_JOINED_ON_BRACKET if joined_on_bracket else None
-        )
+        risk = resolution.risk or link_risk
         if risk and entity.review_status == "auto":
             entity.review_status = "needs_review"
             entity.risk = entity.risk or risk
