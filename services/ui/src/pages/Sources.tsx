@@ -1,39 +1,10 @@
 import { useState } from "react";
 
-import { api, apiKey, setApiKey, usePoll, type Source } from "../api";
-import { Chip, Credibility, ErrorBox } from "../components/ui";
+import { api, usePoll, type Source } from "../api";
+import { ApiKeyBar, Chip, Credibility, ErrorBox } from "../components/ui";
 
 const BLANK = { name: "", url: "", type: "rss" as const, credibility_weight: 0.7, active: true };
 
-/** Write endpoints require HORIZON_API_KEY; it is held in localStorage. */
-function KeyBar() {
-  const [key, setKey] = useState(apiKey() ?? "");
-  const [saved, setSaved] = useState(false);
-  return (
-    <div className="card flex items-center gap-2 px-4 py-2.5">
-      <label className="text-[11px] uppercase tracking-wide text-slate-500">API key</label>
-      <input
-        type="password"
-        value={key}
-        onChange={(e) => {
-          setKey(e.target.value);
-          setSaved(false);
-        }}
-        placeholder="HORIZON_API_KEY (จำเป็นเฉพาะตอนแก้ไข)"
-        className="flex-1 rounded border border-ink-500 bg-ink-700 px-2 py-1 font-mono text-xs text-slate-200 outline-none focus:border-cyan-500/60"
-      />
-      <button
-        onClick={() => {
-          setApiKey(key);
-          setSaved(true);
-        }}
-        className="rounded bg-ink-600 px-3 py-1 text-xs text-slate-200 hover:bg-ink-500"
-      >
-        {saved ? "บันทึกแล้ว" : "บันทึก"}
-      </button>
-    </div>
-  );
-}
 
 export default function Sources() {
   const { data, error, reload } = usePoll(api.sources, 30000);
@@ -59,7 +30,7 @@ export default function Sources() {
 
   return (
     <div className="space-y-3">
-      <KeyBar />
+      <ApiKeyBar />
       {error && <ErrorBox message={error} />}
       {actionError && <ErrorBox message={actionError} />}
 

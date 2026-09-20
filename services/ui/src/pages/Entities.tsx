@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import { api, apiKey, usePoll } from "../api";
 import type { EntityRow } from "../api";
-import { Empty, ErrorBox, Stat, fmtAgo } from "../components/ui";
+import { ApiKeyBar, Empty, ErrorBox, Stat, fmtAgo } from "../components/ui";
 
 /**
  * The entity store, and the queue of things nobody has confirmed yet.
@@ -38,7 +38,7 @@ const TABS: { key: string; label: string }[] = [
   { key: "rejected", label: "ตีกลับ" },
 ];
 
-function Row({ entity, onDone }: { entity: EntityRow; onDone: () => void }) {
+function Row({ entity, onDone, canDecide }: { entity: EntityRow; onDone: () => void; canDecide: boolean }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const pending = entity.review_status === "needs_review";
@@ -116,14 +116,14 @@ function Row({ entity, onDone }: { entity: EntityRow; onDone: () => void }) {
           <span className="ml-auto flex gap-2">
             <button
               onClick={() => decide("confirmed")}
-              disabled={!!busy || !apiKey()}
+              disabled={!!busy || !canDecide}
               className="rounded bg-emerald-600/80 px-3 py-1 text-white hover:bg-emerald-600 disabled:opacity-40"
             >
               {busy === "confirmed" ? "…" : "ถูกต้อง"}
             </button>
             <button
               onClick={() => decide("rejected")}
-              disabled={!!busy || !apiKey()}
+              disabled={!!busy || !canDecide}
               className="rounded bg-red-600/80 px-3 py-1 text-white hover:bg-red-600 disabled:opacity-40"
             >
               {busy === "rejected" ? "…" : "รวมผิด"}
@@ -138,6 +138,10 @@ function Row({ entity, onDone }: { entity: EntityRow; onDone: () => void }) {
 
 export default function Entities() {
   const [tab, setTab] = useState("needs_review");
+  // apiKey() is read during render, so a save has to be announced or the
+  // buttons stay disabled until the next poll — which reads as the save not
+  // having worked.
+  const [hasKey, setHasKey] = useState(!!apiKey());
   const counts = usePoll(api.entityCounts, 30000);
   const { data, error, loading, reload } = usePoll(() => api.entities(tab), 0, [tab]);
 
@@ -207,8 +211,11 @@ export default function Entities() {
       </div>
 
       {error && <ErrorBox message={error} />}
-      {!apiKey() && (
-        <p className="text-[11px] text-slate-600">ต้องตั้ง API key ในหน้าแหล่งข่าวก่อนจึงจะกดยืนยันได้</p>
+      {!hasKey && tab === "needs_review" && (
+        <ApiKeyBar
+          note="ปุ่ม ถูกต้อง / รวมผิด ถูกล็อกอยู่ ใส่ HORIZON_API_KEY แล้วกดบันทึกเพื่อปลดล็อก"
+          onSaved={() => setHasKey(true)}
+        />
       )}
 
       {loading ? (
@@ -228,6 +235,7 @@ export default function Entities() {
             <Row
               key={entity.id}
               entity={entity}
+              canDecide={hasKey}
               onDone={() => {
                 reload();
                 counts.reload();

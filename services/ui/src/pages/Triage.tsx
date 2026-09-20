@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import { api, apiKey, usePoll } from "../api";
 import type { TriageDistribution } from "../api";
-import { ErrorBox } from "../components/ui";
+import { ApiKeyBar, ErrorBox } from "../components/ui";
 
 /**
  * Tuning the editorial formula against real data.
@@ -61,6 +61,7 @@ export default function Triage() {
     [k],
   );
   const [applying, setApplying] = useState(false);
+  const [hasKey, setHasKey] = useState(!!apiKey());
   const [applied, setApplied] = useState<string | null>(null);
   const [applyError, setApplyError] = useState<string | null>(null);
 
@@ -141,13 +142,18 @@ export default function Triage() {
         {applied && <p className="mt-2 text-[11px] text-emerald-300">{applied}</p>}
         <button
           onClick={apply}
-          disabled={applying || !apiKey()}
+          disabled={applying || !hasKey}
           className="mt-3 rounded-lg bg-cyan-600/80 px-4 py-2 text-sm text-white hover:bg-cyan-600 disabled:opacity-50"
         >
           {applying ? "กำลังคำนวณใหม่…" : "คำนวณคะแนนใหม่ทั้งหมด"}
         </button>
-        {!apiKey() && (
-          <p className="mt-2 text-[11px] text-slate-600">ต้องตั้ง API key ในหน้าแหล่งข่าวก่อน</p>
+        {!hasKey && (
+          <div className="mt-3">
+            <ApiKeyBar
+              note="ปุ่มคำนวณคะแนนใหม่ถูกล็อกอยู่ ใส่ HORIZON_API_KEY แล้วกดบันทึกเพื่อปลดล็อก"
+              onSaved={() => setHasKey(true)}
+            />
+          </div>
         )}
       </div>
     </div>
