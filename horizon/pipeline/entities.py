@@ -514,8 +514,27 @@ def merge_is_risky(members: list[str]) -> str | None:
     and the only thing separating them is knowing that DSI is what the
     department is called while iLaw is where the man works. No string rule
     reaches that, so the choice is to queue both or to trust both, and trusting
-    both is how false history gets into a case file. The queue stays small: over
-    the 40 event backfill, 9 of 142 entities merged more than one surface form.
+    both is how false history gets into a case file.
+
+    Re-measured over the whole store — 8,670 articles, 30,672 groups — and the
+    case for keeping this got stronger, not weaker. Only 15 groups contain more
+    than one name at all, and this flags 12 of them. Those 12 are not a tax on
+    correct merges: they are wrong merges, all with the same shape, a shared
+    bracket pulling unrelated names together.
+
+        แมนเชสเตอร์ ซิตี้ (Manchester United) + แมนเชสเตอร์ ยูไนเต็ด (Manchester United)
+        TikTok + นางสาวชนิดา คล้ายพันธ์ (TikTok)
+        ยุทธนา แพรดำ (DSI) + เขมชาติ ประกายหงษ์มณี (DSI)
+
+    The 3 it lets through are all correct — "ตำรวจภูเก็ต (Phuket Police)" with
+    "ตำรวจภูเก็ต (Phuket Provincial Police)" and two like it.
+
+    This is also why `adjudicate` has no counter/mirror check the way
+    `choose_existing` does. Adding one would double the model calls on 30,672
+    decisions to improve at most 15, because a single article spells a name one
+    way: the spelling variants this module exists for happen *between* articles.
+    The uncertainty that matters is at the step deciding whether today's name is
+    someone the store already knows, and that step is where the check already is.
     """
     if len({parse(raw).head for raw in members}) < 2:
         return None

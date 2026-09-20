@@ -620,3 +620,47 @@ def test_the_backfill_totals_add_up():
     assert body.index('totals["checked"] += 1') > body.index("async with session_scope()")
     # And a collision is still counted as something that was looked at.
     assert body.count('totals["checked"] += 1') == 2
+
+
+# ── merge_is_risky, pinned against what it actually meets ───────────────────
+#
+# Every pair below was taken from the live store: 15 of 30,672 groups across
+# 8,670 articles hold more than one name, and these are all of them that matter.
+# The plan of record was to remove this guard once adjudicate had a better
+# uncertainty signal. The measurement says the opposite — it is catching real
+# mistakes — so these pin it in place.
+
+
+@pytest.mark.parametrize(
+    "members",
+    [
+        # Two different football clubs, joined by one club's name in a bracket.
+        ["แมนเชสเตอร์ ซิตี้ (Manchester United)", "แมนเชสเตอร์ ยูไนเต็ด (Manchester United)"],
+        # A company and a person who posts on it.
+        ["TikTok", "นางสาวชนิดา คล้ายพันธ์ (TikTok)"],
+        # Two different officials who work at the same agency.
+        ["ยุทธนา แพรดำ (DSI)", "เขมชาติ ประกายหงษ์มณี (DSI)"],
+        # A party and one of its members.
+        ["พรรคประชาธิปัตย์ (Democrat Party)", "อภิสิทธิ์ เวชชาชีวะ (Democrat Party)"],
+        # Two different people who share a nationality.
+        ["MR. HUY TAN NGUYEN (สัญชาติเวียดนาม)", "MR. QUOC NAM NGUYEN (สัญชาติเวียดนาม)"],
+    ],
+)
+def test_names_joined_only_by_a_shared_bracket_go_to_a_human(members):
+    from horizon.pipeline.entities import merge_is_risky
+
+    assert merge_is_risky(members) is not None
+
+
+@pytest.mark.parametrize(
+    "members",
+    [
+        ["ตำรวจภูเก็ต (Phuket Police)", "ตำรวจภูเก็ต (Phuket Provincial Police)"],
+        ["S.M. Dias", "S.M. Dias (S.M. Dias)"],
+    ],
+)
+def test_the_same_name_spelled_two_ways_is_left_alone(members):
+    """The guard is only worth keeping if it does not flag everything."""
+    from horizon.pipeline.entities import merge_is_risky
+
+    assert merge_is_risky(members) is None
