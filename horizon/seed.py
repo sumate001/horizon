@@ -73,6 +73,31 @@ SOURCES = [
     ("มติชนออนไลน์", "https://www.matichon.co.th/feed", "rss", 0.75),
     ("ไทยรัฐ", "https://www.thairath.co.th/rss/news", "rss", 0.70),
     ("ข่าวสด", "https://www.khaosod.co.th/feed", "rss", 0.70),
+    # International. The extraction prompt already expects mixed Thai/English
+    # input and writes its summary in Thai, so these land in the same pipeline,
+    # the same categories (ต่างประเทศ is one of them), and reach OSINT//DESK in
+    # Thai like everything else — no separate path.
+    #
+    # Weighted toward Asia-Pacific on purpose: a Thai newsroom needs the region
+    # it reports on before it needs another wire on Washington.
+    #
+    # Deliberately absent: Reuters and AP. Neither runs a working public feed
+    # any more — reutersagency.com 404s, feeds.reuters.com no longer resolves,
+    # and every AP path tested either refuses to connect or returns 403. They
+    # are the two most worth having, so if a feed URL ever works again, these
+    # are the first to add back.
+    ("BBC World", "https://feeds.bbci.co.uk/news/world/rss.xml", "rss", 0.90),
+    ("CNA", "https://www.channelnewsasia.com/api/v1/rss-outbound-feed?_format=xml", "rss", 0.85),
+    ("Nikkei Asia", "https://asia.nikkei.com/rss/feed/nar", "rss", 0.85),
+    ("NYT World", "https://rss.nytimes.com/services/xml/rss/nyt/World.xml", "rss", 0.85),
+    ("DW World", "https://rss.dw.com/rdf/rss-en-world", "rss", 0.85),
+    ("UN News", "https://news.un.org/feed/subscribe/en/news/all/rss.xml", "rss", 0.85),
+    ("Al Jazeera", "https://www.aljazeera.com/xml/rss/all.xml", "rss", 0.80),
+    ("The Guardian World", "https://www.theguardian.com/world/rss", "rss", 0.80),
+    # Analysis rather than straight reporting, and a state-linked owner
+    # respectively — both useful, both worth reading at a discount.
+    ("The Diplomat", "https://thediplomat.com/feed/", "rss", 0.75),
+    ("South China Morning Post", "https://www.scmp.com/rss/91/feed", "rss", 0.75),
 ]
 
 
