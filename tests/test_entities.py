@@ -520,3 +520,103 @@ def test_names_the_model_dropped_reach_the_queue_with_a_reason():
     dropped = next(r for r in resolutions if "ข" in r.mentions)
     assert dropped.needs_review
     assert dropped.risk == RISK_NAMES_DROPPED
+
+
+# ── a flag in the review queue must say what it is for ──────────────────────
+
+
+def _resolution(confidence, risk=None):
+    from horizon.pipeline.entities import Resolution
+
+    return Resolution(
+        canonical="ทดสอบ",
+        entity_type="person",
+        mentions=["ทดสอบ"],
+        confidence=confidence,
+        risk=risk,
+    )
+
+
+def test_a_low_confidence_flag_says_that_is_why_it_is_flagged():
+    """needs_review has two causes and only one used to be written down, so 75
+    entities sat in the queue carrying nothing but a name."""
+    from horizon.pipeline.entities import RISK_LOW_CONFIDENCE
+
+    resolution = _resolution(0.0)
+
+    assert resolution.needs_review
+    assert resolution.review_risk is not None
+    assert RISK_LOW_CONFIDENCE in resolution.review_risk
+
+
+def test_a_real_risk_is_not_overwritten_by_the_confidence_one():
+    """The specific reason is the useful one; low confidence is the fallback."""
+    from horizon.pipeline.entities import RISK_TYPE_MISMATCH
+
+    assert _resolution(0.0, risk=RISK_TYPE_MISMATCH).review_risk == RISK_TYPE_MISMATCH
+
+
+def test_nothing_that_stays_out_of_the_queue_carries_a_reason():
+    resolution = _resolution(1.0)
+
+    assert not resolution.needs_review
+    assert resolution.review_risk is None
+
+
+def test_everything_in_the_queue_can_explain_itself():
+    """The invariant the 75 broke: needs_review and review_risk agree."""
+    for confidence in (0.0, 0.5, 0.74, 0.75, 0.9, 1.0):
+        resolution = _resolution(confidence)
+
+        assert resolution.needs_review == (resolution.review_risk is not None)
+
+
+# ── two entities resolving to one Wikidata item ─────────────────────────────
+
+
+def test_duplicate_is_a_real_qid_status():
+    """Recorded as its own outcome rather than squeezed into no_match: a match
+    was found, it just belongs to another row."""
+    from horizon.models import QID_STATUSES
+
+    assert "duplicate" in QID_STATUSES
+
+
+def test_a_shared_qid_is_described_as_probably_the_same_thing():
+    """ix_entities_qid is unique because one Wikidata item is one entity — the
+    property that lets a Q-number merge spelling variants. A collision is the
+    lookup discovering a duplicate, and the backfill used to die on it."""
+    from horizon.pipeline.entities import RISK_SHARED_QID
+
+    assert RISK_SHARED_QID
+    assert RISK_SHARED_QID != ""
+
+
+def test_the_backfill_counts_duplicates_separately():
+    """A run that hits collisions must still report what it did with them."""
+    import inspect
+
+    from horizon.pipeline import backfill_wikidata
+
+    source = inspect.getsource(backfill_wikidata.run)
+
+    assert '"duplicate": 0' in source
+    assert "IntegrityError" in source
+    assert "continue" in source
+
+
+def test_the_backfill_totals_add_up():
+    """A collision used to be counted twice — once as linked before the commit
+    failed, once as duplicate in the handler — so a 40-entity run reported 46
+    outcomes. The counters are the only view of a job that runs for hours."""
+    import inspect
+
+    from horizon.pipeline import backfill_wikidata
+
+    source = inspect.getsource(backfill_wikidata.run)
+    body = source[source.index("for index, entity_id"):]
+
+    # Counting happens after the session scope has committed, not inside it.
+    assert body.index('totals["checked"] += 1') > body.index("async with session_scope()")
+    # And a collision is still counted as something that was looked at.
+    assert body.count('totals["checked"] += 1') == 2

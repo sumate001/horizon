@@ -18,15 +18,47 @@ import asyncio
 import logging
 
 from sqlalchemy import or_, select
+from sqlalchemy.exc import IntegrityError
 
 from ..config import get_settings
 from ..db import session_scope
 from ..logging import setup_logging
 from ..models import Entity, Event, EventEntity
-from .entities import UNIDENTIFIABLE_RISKS
+from .entities import RISK_SHARED_QID, UNIDENTIFIABLE_RISKS
 from .wikidata import WikidataClient, link_entity
 
 log = logging.getLogger("horizon.backfill_wikidata")
+
+
+async def _record_duplicate(entity_id, attempted_qid: str | None) -> str:
+    """Mark a Q-number collision and name the entity already holding it.
+
+    Takes the attempted qid as an argument rather than re-reading it: the
+    session that hit the constraint was rolled back, so the row no longer
+    remembers what the lookup decided. The qid is deliberately not written — it
+    belongs to the other row — so what gets recorded is the finding and who to
+    compare against. Merging two entities is not reversible, so this stops at
+    telling a human.
+    """
+    async with session_scope() as session:
+        entity = await session.get(Entity, entity_id)
+        if entity is None:
+            return "(หายไประหว่างทาง)"
+        taken_by = (
+            await session.scalar(
+                select(Entity.canonical_name).where(
+                    Entity.qid == attempted_qid, Entity.id != entity.id
+                )
+            )
+            if attempted_qid
+            else None
+        )
+        entity.qid_status = "duplicate"
+        entity.qid_reason = f"{RISK_SHARED_QID}: {taken_by}" if taken_by else RISK_SHARED_QID
+        if entity.review_status == "auto":
+            entity.review_status = "needs_review"
+            entity.risk = entity.risk or entity.qid_reason
+        return entity.canonical_name
 
 
 async def _context_for(session, entity_id) -> str | None:
@@ -78,24 +110,59 @@ async def run(limit: int, *, retry_unavailable: bool = False) -> dict[str, int]:
         )
 
     log.info("wikidata backfill starting", extra={"entities": len(pending)})
-    totals = {"checked": 0, "linked": 0, "no_match": 0, "unavailable": 0, "queued": 0}
+    totals = {
+        "checked": 0,
+        "linked": 0,
+        "no_match": 0,
+        "unavailable": 0,
+        "duplicate": 0,
+        "queued": 0,
+    }
     wikidata = WikidataClient()
     try:
         for index, entity_id in enumerate(pending, 1):
-            async with session_scope() as session:
-                entity = await session.get(Entity, entity_id)
-                if entity is None:
-                    continue
-                context = await _context_for(session, entity_id)
-                before_review = entity.review_status
-                await link_entity(
-                    entity, context=context, wikidata=wikidata, model=settings.entity_model
-                )
+            # Bound before the block: the commit that raises happens on the way
+            # out of the session scope, after these are set, but link_entity
+            # could in principle fail earlier.
+            name, qid = "(ไม่ทราบชื่อ)", None
+            try:
+                async with session_scope() as session:
+                    entity = await session.get(Entity, entity_id)
+                    if entity is None:
+                        continue
+                    context = await _context_for(session, entity_id)
+                    before_review = entity.review_status
+                    await link_entity(
+                        entity, context=context, wikidata=wikidata, model=settings.entity_model
+                    )
+                    name, qid = entity.canonical_name, entity.qid
+                    outcome = entity.qid_status
+                    requeued = entity.review_status != before_review
+                # Counted only once the commit has actually gone through. Doing
+                # it inside the block counted a collision as `linked` first and
+                # as `duplicate` again in the handler, so the totals added up to
+                # more than the number of entities looked at.
                 totals["checked"] += 1
-                totals[entity.qid_status if entity.qid_status != "linked" else "linked"] += 1
-                if entity.review_status != before_review:
+                totals[outcome] += 1
+                if requeued:
                     totals["queued"] += 1
-                name, qid = entity.canonical_name, entity.qid
+            except IntegrityError:
+                # `ix_entities_qid` is unique because one Wikidata item is one
+                # entity — the property that lets a Q-number merge spelling
+                # variants. So this is the lookup finding that two rows are the
+                # same subject, and it used to end the run: the whole backfill
+                # died on the first collision and 14,113 entities stayed
+                # `pending` because the job never reached them.
+                # `checked` counts everything looked at, so the outcomes sum
+                # back to it: linked + no_match + unavailable + duplicate.
+                totals["checked"] += 1
+                totals["duplicate"] += 1
+                name = await _record_duplicate(entity_id, qid)
+                log.info(
+                    "wikidata item already claimed by another entity",
+                    extra={"done": index, "of": len(pending), "entity_name": name, "qid": qid},
+                )
+                continue
             log.info(
                 "wikidata checked",
                 extra={"done": index, "of": len(pending), "entity_name": name, "qid": qid},

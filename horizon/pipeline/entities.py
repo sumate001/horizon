@@ -101,6 +101,13 @@ RISK_NAMES_DROPPED = "โมเดลไม่ได้จัดชื่อเ�
 RISK_UNRELATED_NAMES = "ชื่อที่ปรากฏในตัวตนนี้ไม่เชื่อมถึงกัน อาจเป็นคนละสิ่งที่ถูกรวมไว้ด้วยกัน"
 RISK_TYPE_MISMATCH = "เป็นคนละประเภทกัน เช่น บุคคลกับองค์กร"
 RISK_DIFFERENT_ITEMS = "ผูกกับรายการวิกิดาต้าคนละรายการ"
+RISK_SHARED_QID = "ชี้ไปที่รายการวิกิดาต้าเดียวกับตัวตนอื่น น่าจะเป็นสิ่งเดียวกัน"
+#: needs_review has two causes — a risk, or a confidence below the threshold —
+#: and only the first one used to write down why. The second put 75 entities in
+#: the queue carrying nothing but a name, which an analyst cannot act on and
+#: cannot dismiss either. A flag without a reason is indistinguishable from
+#: noise, and a queue that is mostly noise stops being read.
+RISK_LOW_CONFIDENCE = "ยังไม่มั่นใจว่าชื่อนี้คือสิ่งใด"
 
 #: These two say we do not know *what* the entity is, not merely that a merge
 #: looked thin. Asking Wikidata to identify one is guaranteed to get an answer
@@ -235,6 +242,15 @@ class Resolution:
     @property
     def needs_review(self) -> bool:
         return self.confidence < REVIEW_THRESHOLD or self.risk is not None
+
+    @property
+    def review_risk(self) -> str | None:
+        """The reason to show in the queue — never None while needs_review."""
+        if self.risk is not None:
+            return self.risk
+        if self.confidence < REVIEW_THRESHOLD:
+            return f"{RISK_LOW_CONFIDENCE} (ความมั่นใจ {self.confidence:.2f})"
+        return None
 
     @property
     def is_generic(self) -> bool:
@@ -973,7 +989,7 @@ async def persist(
                 # Set here rather than left to the column default: that default
                 # only lands at INSERT, and this counter is incremented below.
                 mention_count=0,
-                risk=resolution.risk,
+                risk=resolution.review_risk,
             )
             session.add(entity)
             await session.flush()

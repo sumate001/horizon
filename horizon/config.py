@@ -43,7 +43,12 @@ class Settings(BaseSettings):
     entity_review_threshold: float = 0.75
     #: Wikimedia asks automated clients to identify themselves with a contact
     #: address; an anonymous agent gets rate limited harder or blocked.
-    wikidata_user_agent: str = "horizon-newsroom/0.1 (https://github.com/; contact via repo)"
+    #: A real, reachable URL — the placeholder here was "https://github.com/"
+    #: with no repository after it, which identifies nobody and is the kind of
+    #: agent the policy exists to refuse.
+    wikidata_user_agent: str = (
+        "horizon-newsroom/0.1 (https://github.com/sumate001/horizon; contact via repo issues)"
+    )
     wikidata_enabled: bool = False
     #: Below this the Q-number is recorded but the entity goes to the review
     #: queue. A wrong identifier is permanent and invisible — it travels to

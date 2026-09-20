@@ -58,7 +58,12 @@ ENTITY_REVIEW_STATUSES = ("auto", "needs_review", "confirmed", "rejected")
 #: pending — not looked up yet. linked — has a Q-number. no_match — Wikidata was
 #: asked and had nothing, which is the normal answer for two thirds of the long
 #: tail. unavailable — the API could not be reached, so it is worth retrying.
-QID_STATUSES = ("pending", "linked", "no_match", "unavailable")
+#: `duplicate` means the Q-number the lookup found is already held by another
+#: entity. `ix_entities_qid` is unique on purpose — one Wikidata item is one
+#: entity, which is what lets a Q-number merge spelling variants — so a
+#: collision is the lookup discovering two rows are the same subject, not a
+#: failure. It needs a human because merging entities is not reversible.
+QID_STATUSES = ("pending", "linked", "no_match", "unavailable", "duplicate")
 
 
 def _check(column: str, allowed: tuple[str, ...], name: str) -> CheckConstraint:
