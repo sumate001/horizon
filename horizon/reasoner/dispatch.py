@@ -38,6 +38,11 @@ class SignalRef:
     title: str
     combined_score: float
     trend_score: float
+    #: Only on beat_match. Carried through rather than looked up again so the
+    #: reason the editor reads is the one the matcher actually gave.
+    beat_id: uuid.UUID | None = None
+    beat_name: str | None = None
+    beat_reason: str | None = None
 
 
 def _iso(value: datetime | None) -> str | None:
@@ -148,6 +153,13 @@ async def build_payload(
         # analyst accepts, which is later and fuller than this snapshot.
         "cluster_id": str(signal.cluster_id) if signal.cluster_id else None,
         "scenario_id": str(scenario_id) if scenario_id else None,
+        # Null on a detection, set on a beat_match. The receiver files it
+        # straight into the beat rather than asking its own model to decide
+        # again — and a second opinion here could only contradict the reason
+        # shown next to it.
+        "beat_id": str(signal.beat_id) if signal.beat_id else None,
+        "beat_name": signal.beat_name,
+        "beat_reason": signal.beat_reason,
         "created_at": utcnow().isoformat(),
     }
 

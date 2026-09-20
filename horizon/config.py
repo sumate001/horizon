@@ -33,6 +33,19 @@ class Settings(BaseSettings):
     embed_model: str = "bge-m3"
     llm_timeout: float = 60.0
     entity_model: str = "gemma4:12b"
+    beat_model: str = "gemma4:12b"
+    #: How far back the beat matcher looks on each batch run. Wider than the
+    #: batch interval so a run that fails or is skipped does not leave a hole in
+    #: coverage — `beat_matches` has a unique constraint, so overlap re-reads
+    #: rather than re-sends.
+    beat_lookback_hours: int = 12
+    #: Events scored below this are not offered to a beat at all. Not a quality
+    #: judgement — a floor that keeps the matcher off the long tail of trivia,
+    #: which is most of the corpus and none of what a beat is for.
+    beat_min_triage_total: float = 4.0
+    #: Off until beats exist to match against. Turning it on with an empty
+    #: `beats` table costs nothing and does nothing.
+    beat_matching_enabled: bool = True
     #: Off by default. It adds one LLM call per event, and a half-populated
     #: entity store is worse than none: downstream code would read "never seen
     #: before" when the truth is "not resolved yet".

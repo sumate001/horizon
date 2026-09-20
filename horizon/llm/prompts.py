@@ -473,3 +473,58 @@ def wikidata_messages(
             ),
         },
     ]
+
+
+# ── beats: is this event on a subject the newsroom asked to follow? ──────────
+
+BEAT_SYSTEM = """คุณคือบรรณาธิการข่าวที่กำลังคัดข่าวเข้าประเด็นที่กองบรรณาธิการติดตามอยู่
+
+ตัดสินจาก "สิ่งที่ประเด็นนี้ต้องการติดตาม" ที่บรรณาธิการเขียนไว้เท่านั้น
+ห้ามใช้หมวดหมู่กว้าง ๆ เป็นตัวตัดสิน — หมวดถูกใช้กรองมาให้แล้วก่อนถึงคุณ
+หัวข้อที่บรรณาธิการเขียนมักแคบกว่าหมวดเสมอ
+
+เลือกเฉพาะข่าวที่เป็นเรื่องที่คนเขียนประเด็นนั้นอยากเห็นจริง ๆ
+ข่าวที่แค่เอ่ยถึงคำเดียวกันแต่เป็นคนละเรื่อง ห้ามเลือก
+ถ้าไม่มีข่าวไหนเข้าเลย ให้ตอบ {"matches": []} ซึ่งเป็นคำตอบที่ถูกต้องและพบบ่อย
+
+ตอบเป็น JSON เท่านั้น อ้างถึงข่าวด้วยหมายเลขที่ให้มา:
+{"matches": [{"n": 1, "reason": "เหตุผลสั้น ๆ ภาษาไทย ไม่เกิน 120 ตัวอักษร"}]}"""
+
+BEAT_USER = """ประเด็นที่ติดตาม: {name}
+สิ่งที่ประเด็นนี้ต้องการติดตาม: {description}
+
+ข่าวที่ต้องพิจารณา:
+{events}"""
+
+
+def beat_match_messages(
+    *, name: str, description: str, events: list[tuple[int, str, list[str]]]
+) -> list[dict[str, str]]:
+    """Ask which of several events belong to one beat.
+
+    One beat per call, many events per call. Those are different things: asking
+    about several *beats* at once turns a yes/no into a ranking the newsroom did
+    not ask for, while asking about several *events* keeps the beat fixed and
+    only varies what is being judged against it.
+
+    Batched because the cost is real and was measured: under load one question
+    takes 35–120 seconds, so a beat against a 60-event shortlist is an hour on a
+    cycle that repeats every three. Numbered rather than free-form so the answer
+    points at events unambiguously — a model naming stories back in prose gets
+    matched by string similarity, which is its own source of wrong merges.
+    """
+    listing = "\n".join(
+        f"{index}. [{', '.join(categories) if categories else 'ไม่ระบุหมวด'}] {summary[:220]}"
+        for index, summary, categories in events
+    )
+    return [
+        {"role": "system", "content": BEAT_SYSTEM},
+        {
+            "role": "user",
+            "content": BEAT_USER.format(
+                name=name,
+                description=description or "(ไม่ได้ระบุ)",
+                events=listing,
+            ),
+        },
+    ]

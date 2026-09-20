@@ -36,7 +36,7 @@ from ..metrics import (
     signals_handled,
     timed,
 )
-from ..models import Dispatch, WeakSignal
+from ..models import SIGNAL_TYPES, Dispatch, WeakSignal
 from ..pipeline.vectors import utcnow
 from ..queue import get_redis
 from ..reasoner.dispatch import SignalRef, record_dispatch
@@ -59,7 +59,7 @@ def parse_signal(raw: str) -> SignalRef | None:
         return None
 
     signal_type = message.get("signal_type")
-    if signal_type not in {"weak_signal", "trend_breakout"}:
+    if signal_type not in SIGNAL_TYPES:
         log.warning("unknown signal type", extra={"signal_type": str(signal_type)[:40]})
         return None
 
@@ -83,6 +83,9 @@ def parse_signal(raw: str) -> SignalRef | None:
         title=str(message.get("title") or ""),
         combined_score=float(message.get("combined_score") or 0.0),
         trend_score=float(message.get("trend_score") or 0.0),
+        beat_id=as_uuid(message.get("beat_id")),
+        beat_name=(str(message["beat_name"]) if message.get("beat_name") else None),
+        beat_reason=(str(message["beat_reason"]) if message.get("beat_reason") else None),
     )
 
 
@@ -136,7 +139,12 @@ async def handle_signal(signal: SignalRef) -> uuid.UUID | None:
         },
     )
 
-    if await _recently_reasoned(signal):
+    # A beat match is a standing request being served, not a detection. The
+    # cooldown exists so one cluster cannot produce a run of near-identical
+    # detections; applying it here would silently drop the story the newsroom
+    # explicitly asked to be told about, because something else on the same
+    # cluster happened to fire first.
+    if signal.signal_type != "beat_match" and await _recently_reasoned(signal):
         signals_handled.labels(signal.signal_type, "cooldown").inc()
         log.info(
             "skipping — cluster reasoned about recently",
@@ -144,8 +152,14 @@ async def handle_signal(signal: SignalRef) -> uuid.UUID | None:
         )
         return None
 
+    # Scenario reasoning is skipped for beat matches, and it is a cost decision
+    # rather than a judgement about worth: forces + scenario is two model passes
+    # per signal, and one beat can match up to MAX_MATCHES_PER_BEAT events in a
+    # single run. An editor following a subject wants the story; if one turns
+    # out to need modelling, accepting it in OSINT//DESK opens a case and the
+    # cluster is right there.
     scenario_id = None
-    if signal.cluster_id is not None:
+    if signal.cluster_id is not None and signal.signal_type != "beat_match":
         # Forces first: the scenario prompt reads the assessments they produce.
         try:
             with timed(reasoning_duration, "forces"):

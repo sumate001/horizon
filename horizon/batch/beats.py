@@ -1,0 +1,263 @@
+"""Match new events against the beats the newsroom asked to follow.
+
+This is the half of the OSINT//DESK integration that did not exist. A beat
+defined over there could only filter what arrived, and what arrives is whatever
+the anomaly detectors flag — 246 of 9,939 events, 2.5%. So an editor could
+define "อิสราเอลในประเทศไทย", 90 matching events could sit in this database, 21
+of them from the last two days, and not one would travel. Nothing was broken.
+Nothing had asked for them.
+
+`weak_signal` and `trend_breakout` say the engine noticed something. This says
+the newsroom asked for something and here it is. The two are not graded the
+same, which is why `beat_match` is its own signal type rather than a flag.
+
+Rules, in order, and the order is the point:
+
+  1. Categories narrow, they never decide. A beat with categories is only
+     considered for events sharing one; a beat with none is considered for
+     everything. This is the same rule OSINT//DESK uses on its side, and for
+     the same reason: ความมั่นคง covers the southern insurgency, a cyber
+     incident and a land dispute equally well.
+  2. The description decides, read by the model. A subject is always narrower
+     than a category.
+  3. One beat per call. Asking about several at once turns a yes/no into a
+     ranking the newsroom did not ask for, and an event can sit on two beats.
+
+Asking the model about every (beat × event) pair does not scale and was the
+first thing measured: 4 beats against one 12-hour window is ~1,300 questions,
+45 minutes to 3.5 hours, on a cycle that repeats every 3. So the beat
+description is embedded once and the existing event vectors — already there for
+clustering — shortlist the candidates. The model then answers a few dozen
+questions instead of a few thousand, and it answers them about the events that
+could plausibly be on the beat rather than about the whole day.
+"""
+
+import logging
+import uuid
+from dataclasses import dataclass, field
+from datetime import timedelta
+
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+
+from ..config import get_settings
+from ..db import session_scope
+from ..llm.ollama import OllamaError, get_ollama
+from ..llm.prompts import beat_match_messages
+from ..models import Beat, BeatMatch, Event
+from ..pipeline.vectors import get_vector_store, utcnow
+from .signals import publish
+
+log = logging.getLogger("horizon.batch.beats")
+
+#: Cap per run. A beat that suddenly matches everything is a badly written beat,
+#: and the failure mode to avoid is flooding an editor's inbox before anyone
+#: notices. The cap is per beat, not per run, so one loose beat cannot crowd out
+#: a well-written one.
+MAX_MATCHES_PER_BEAT = 25
+
+#: How many nearest events the vector search offers a beat before the model is
+#: asked anything. The embedding shortlists — it never accepts.
+SHORTLIST = 60
+
+#: Events per question. Under load one question takes 35–120 seconds, so asking
+#: per event would put a single beat's shortlist at an hour on a cycle that
+#: repeats every three. Batched, a run is a handful of questions.
+BATCH = 20
+
+
+@dataclass
+class BeatReport:
+    beats: int = 0
+    events_considered: int = 0
+    pairs_asked: int = 0
+    matched: int = 0
+    published: int = 0
+    already_matched: int = 0
+    capped: list[str] = field(default_factory=list)
+    model_failures: int = 0
+
+    def as_log(self) -> dict:
+        return {
+            "beats": self.beats,
+            "events_considered": self.events_considered,
+            "pairs_asked": self.pairs_asked,
+            "matched": self.matched,
+            "published": self.published,
+            "already_matched": self.already_matched,
+            "capped": self.capped,
+            "model_failures": self.model_failures,
+        }
+
+
+def is_candidate(beat: Beat, categories: list[str]) -> bool:
+    """Whether this beat should even be asked about this event.
+
+    A beat with no categories is asked about everything — that is what leaving
+    it blank means, and it must not silently mean "nothing".
+    """
+    if not beat.categories:
+        return True
+    return bool(set(beat.categories) & set(categories or []))
+
+
+async def run_beat_matching() -> BeatReport:
+    """One pass: ask each open beat about the events it could plausibly want."""
+    settings = get_settings()
+    report = BeatReport()
+    if not settings.beat_matching_enabled:
+        log.info("beat matching disabled")
+        return report
+
+    since = utcnow() - timedelta(hours=settings.beat_lookback_hours)
+    async with session_scope() as session:
+        beat_rows = [
+            (b.id, b.name, b.description, list(b.categories or []))
+            for b in (
+                await session.execute(select(Beat).where(Beat.active.is_(True)).order_by(Beat.name))
+            ).scalars()
+        ]
+        seen = {
+            (row.beat_id, row.event_id)
+            for row in (await session.execute(select(BeatMatch))).scalars()
+        }
+
+    report.beats = len(beat_rows)
+    if not beat_rows:
+        log.info("beat matching complete", extra=report.as_log())
+        return report
+
+    client = get_ollama()
+    store = get_vector_store()
+    considered: set[uuid.UUID] = set()
+
+    for beat_id, beat_name, description, beat_categories in beat_rows:
+        # The beat's own words are the query. Name included: a beat called
+        # "อิสราเอลในประเทศไทย" carries meaning the description may assume.
+        try:
+            vector = await client.embed_one(f"{beat_name}\n{description}")
+            hits = await store.search(vector, limit=SHORTLIST, since=since)
+        except Exception as exc:  # noqa: BLE001 — one beat must not cost the run
+            report.model_failures += 1
+            log.warning(
+                "could not shortlist for this beat",
+                extra={"beat": beat_name, "error": str(exc)[:160]},
+            )
+            continue
+
+        event_ids = [hit.event_id for hit in hits if (beat_id, hit.event_id) not in seen]
+        report.already_matched += len(hits) - len(event_ids)
+        if not event_ids:
+            continue
+
+        async with session_scope() as session:
+            candidates = [
+                (e.id, e.summary or "", list(e.categories or []), e.cluster_id)
+                for e in (
+                    await session.execute(
+                        select(Event)
+                        .where(Event.id.in_(event_ids))
+                        .where(Event.triage_total >= settings.beat_min_triage_total)
+                    )
+                ).scalars()
+            ]
+
+        matched_here = 0
+        eligible = [
+            (event_id, summary, categories, cluster_id)
+            for event_id, summary, categories, cluster_id in candidates
+            if is_candidate(
+                Beat(
+                    id=beat_id,
+                    name=beat_name,
+                    description=description,
+                    categories=beat_categories,
+                ),
+                categories,
+            )
+        ]
+        considered.update(event_id for event_id, *_ in eligible)
+
+        for start_at in range(0, len(eligible), BATCH):
+            if matched_here >= MAX_MATCHES_PER_BEAT:
+                report.capped.append(beat_name)
+                break
+            chunk = eligible[start_at : start_at + BATCH]
+            report.pairs_asked += len(chunk)
+            try:
+                answer = await client.chat_json(
+                    beat_match_messages(
+                        name=beat_name,
+                        description=description,
+                        events=[
+                            (index, summary, categories)
+                            for index, (_, summary, categories, _) in enumerate(chunk, 1)
+                        ],
+                    ),
+                    purpose="beat_match",
+                    model=settings.beat_model,
+                )
+            except (OllamaError, Exception) as exc:  # noqa: BLE001
+                # One unanswered question must not cost the run. These events
+                # stay unmatched and the next cycle asks again.
+                report.model_failures += 1
+                log.warning(
+                    "beat match question went unanswered",
+                    extra={"beat": beat_name, "error": str(exc)[:120]},
+                )
+                continue
+
+            for hit in answer.get("matches") or []:
+                try:
+                    position = int(hit["n"]) - 1
+                except (KeyError, TypeError, ValueError):
+                    continue
+                if not 0 <= position < len(chunk):
+                    # A number for an event that was not offered. Dropped rather
+                    # than clamped: guessing which story was meant is how the
+                    # wrong one ends up in an editor's inbox with a reason
+                    # written about a different story.
+                    log.warning(
+                        "beat match names an event that was not offered",
+                        extra={"beat": beat_name, "n": str(hit.get("n"))[:20]},
+                    )
+                    continue
+                if matched_here >= MAX_MATCHES_PER_BEAT:
+                    report.capped.append(beat_name)
+                    break
+
+                event_id, summary, categories, cluster_id = chunk[position]
+                reason = str(hit.get("reason") or "").strip()[:400]
+                match_id = uuid.uuid4()
+                try:
+                    async with session_scope() as session:
+                        session.add(
+                            BeatMatch(
+                                id=match_id, beat_id=beat_id, event_id=event_id, reason=reason
+                            )
+                        )
+                except IntegrityError:
+                    # Another run got there first. Not an error — the unique
+                    # constraint is doing exactly what it is for.
+                    report.already_matched += 1
+                    continue
+
+                report.matched += 1
+                matched_here += 1
+                if await publish(
+                    "beat_match",
+                    match_id,
+                    title=summary[:160],
+                    combined_score=0.0,
+                    categories=categories,
+                    cluster_id=str(cluster_id) if cluster_id else None,
+                    event_id=str(event_id),
+                    beat_id=str(beat_id),
+                    beat_name=beat_name,
+                    beat_reason=reason,
+                ):
+                    report.published += 1
+
+    report.events_considered = len(considered)
+    log.info("beat matching complete", extra=report.as_log())
+    return report

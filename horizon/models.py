@@ -22,6 +22,7 @@ from sqlalchemy import (
     LargeBinary,
     String,
     Text,
+    UniqueConstraint,
     func,
     text,
 )
@@ -40,7 +41,15 @@ WEAK_SIGNAL_STATUSES = (
     "expired",
 )
 PESTEL_DIMENSIONS = ("P", "E", "S", "T", "E2", "L")
-SIGNAL_TYPES = ("weak_signal", "trend_breakout")
+#: `beat_match` is not a third detector. weak_signal and trend_breakout mean
+#: "the engine noticed something"; beat_match means "the newsroom asked for this
+#: subject and an event matched it". Without it, a beat defined in OSINT//DESK
+#: could only sort what the detectors happened to send — 2.5% of what Horizon
+#: knows — so an editor could follow "อิสราเอลในประเทศไทย" while 90 matching
+#: events sat here and none travelled. They are graded differently at verdict
+#: time too: a detector misfiring and a beat the newsroom wrote itself are not
+#: the same kind of wrong.
+SIGNAL_TYPES = ("weak_signal", "trend_breakout", "beat_match")
 DISPATCH_STATUSES = ("pending", "delivered", "failed", "disabled")
 #: `off_topic` is not a fourth grade of wrongness. It says the detection was
 #: right and the story simply is not on this newsroom's beat, which is feedback
@@ -302,6 +311,58 @@ class Scenario(Base):
         ARRAY(UUID(as_uuid=True)), nullable=False, default=list
     )
     model: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class Beat(Base):
+    """What OSINT//DESK is watching for, mirrored here so matching can run.
+
+    A cache, not a source of truth: the editorial list lives in OSINT//DESK and
+    is pulled from it. Keeping a copy is what lets Horizon keep matching while
+    the other side is down, which is the property the loose coupling is for.
+    """
+
+    __tablename__ = "beats"
+    __table_args__ = (Index("ix_beats_active", "active"),)
+
+    #: OSINT//DESK's signal_profiles.id, reused so a match can name it back.
+    id: Mapped[uuid.UUID] = _pk()
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    #: The free text an editor wrote. This is what the model actually reads —
+    #: a subject is always narrower than a category.
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    categories: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, default=list)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    synced_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class BeatMatch(Base):
+    """One event judged to be on one beat. The row a beat_match dispatch points at.
+
+    Also the record of what has already been sent: without it the batch would
+    re-match and re-send the same event on every run.
+    """
+
+    __tablename__ = "beat_matches"
+    __table_args__ = (
+        UniqueConstraint("beat_id", "event_id", name="uq_beat_matches_beat_event"),
+        Index("ix_beat_matches_created_at", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = _pk()
+    beat_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("beats.id", ondelete="CASCADE"), nullable=False
+    )
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("events.id", ondelete="CASCADE"), nullable=False
+    )
+    #: Why the model said yes, in Thai. Travels to OSINT//DESK and is shown to
+    #: the editor, so a beat that is matching the wrong thing is visible.
+    reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

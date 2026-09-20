@@ -17,7 +17,10 @@
     "force_assessments",
     "cluster_id",
     "scenario_id",
-    "created_at"
+    "created_at",
+    "beat_id",
+    "beat_name",
+    "beat_reason"
   ],
   "properties": {
     "signal_id": {
@@ -29,8 +32,10 @@
       "type": "string",
       "enum": [
         "weak_signal",
-        "trend_breakout"
-      ]
+        "trend_breakout",
+        "beat_match"
+      ],
+      "description": "weak_signal and trend_breakout are detections: the engine noticed something anomalous. beat_match is a request being served: the newsroom asked to follow this subject, and the event matched it. The distinction is load-bearing at verdict time — 'this was not worth sending' means different things for a detector that misfired and for a beat the newsroom defined itself."
     },
     "title": {
       "type": "string",
@@ -157,6 +162,27 @@
       ],
       "format": "uuid",
       "description": "Cluster the signal came from, so the receiver can ask Horizon for the full timeline. Null for a weak signal raised on a single unclustered event."
+    },
+    "beat_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "The OSINT//DESK signal_profiles.id this matched. Null unless signal_type is beat_match."
+    },
+    "beat_name": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Name of the beat at the time of the match, for display when the beat is later renamed or deleted."
+    },
+    "beat_reason": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Why the engine judged this event to be on that beat, in Thai."
     }
   }
 }

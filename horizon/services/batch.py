@@ -21,12 +21,14 @@ import signal
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy import select
 
+from ..batch.beats import run_beat_matching
 from ..batch.clustering import run_clustering
 from ..batch.signals import publish
 from ..batch.trends import run_trend_scoring
 from ..batch.weak_signals import run_weak_signal_detection
 from ..config import get_settings
 from ..db import session_scope
+from ..integration.osint_desk import sync_beats
 from ..logging import setup_logging
 from ..metrics import (
     batch_job_duration,
@@ -98,6 +100,25 @@ async def run_batch() -> None:
     except Exception as exc:
         batch_job_failures.labels("weak_signals").inc()
         log.exception("weak signal detection failed", extra={"error": str(exc)})
+
+    # Last, and deliberately after the detectors: a beat match is a standing
+    # request being served, and it must not delay the anomalies. The sync runs
+    # first so a beat created minutes ago is matched on this pass; if
+    # OSINT//DESK is unreachable the previous mirror stands and matching still
+    # runs, which is the whole reason the list is mirrored rather than queried.
+    try:
+        with timed(batch_job_duration, "beat_sync"):
+            await sync_beats()
+    except Exception as exc:
+        batch_job_failures.labels("beat_sync").inc()
+        log.exception("beat sync failed", extra={"error": str(exc)})
+
+    try:
+        with timed(batch_job_duration, "beats"):
+            await run_beat_matching()
+    except Exception as exc:
+        batch_job_failures.labels("beats").inc()
+        log.exception("beat matching failed", extra={"error": str(exc)})
 
     log.info("batch run finished")
 

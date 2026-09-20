@@ -23,7 +23,7 @@ from sqlalchemy import select
 from ..config import get_settings
 from ..db import session_scope
 from ..metrics import delivery_attempts
-from ..models import Dispatch
+from ..models import Beat, Dispatch
 from ..pipeline.vectors import utcnow
 
 log = logging.getLogger("horizon.integration.osint_desk")
@@ -34,6 +34,7 @@ log = logging.getLogger("horizon.integration.osint_desk")
 BACKOFF_SECONDS: tuple[int, ...] = (30, 120, 600, 3600)
 
 INBOUND_PATH = "/api/v1/signals/inbound"
+BEATS_PATH = "/api/v1/signals/profiles/active"
 TIMEOUT = 20.0
 #: A 4xx other than these means OSINT//DESK rejected the payload itself —
 #: retrying an unchanged body would just repeat the rejection.
@@ -190,3 +191,64 @@ async def due_dispatches(limit: int = 20) -> list[uuid.UUID]:
             )
         ).scalars()
         return list(rows)
+
+
+# ── inbound: what the newsroom asked to follow ───────────────────────────────
+
+
+async def sync_beats(*, client: httpx.AsyncClient | None = None) -> int:
+    """Refresh the local mirror of OSINT//DESK's beats. Returns how many are active.
+
+    A pull rather than a push, for the same reason everything else here is
+    fire-and-forget: OSINT//DESK being unreachable must not stop Horizon
+    working. On failure the previous mirror stands and matching carries on
+    against a slightly stale list, which is much better than matching against
+    nothing.
+
+    Beats that disappear upstream are marked inactive rather than deleted —
+    `beat_matches` rows point at them, and a beat being retired should not erase
+    the record of what was already sent under it.
+    """
+    settings = get_settings()
+    if not settings.osint_desk_base_url:
+        return 0
+
+    url = settings.osint_desk_base_url.rstrip("/") + BEATS_PATH
+    owned = client is not None
+    http = client or httpx.AsyncClient(timeout=TIMEOUT)
+    try:
+        response = await http.get(url, headers={"X-API-Key": settings.osint_desk_api_key})
+        response.raise_for_status()
+        rows = response.json()
+    except Exception as exc:  # noqa: BLE001 — a stale mirror beats no mirror
+        log.warning("beat sync failed, keeping the previous list", extra={"error": str(exc)[:200]})
+        return -1
+    finally:
+        if not owned:
+            await http.aclose()
+
+    seen: set[uuid.UUID] = set()
+    async with session_scope() as session:
+        for row in rows:
+            try:
+                beat_id = uuid.UUID(row["id"])
+            except (KeyError, ValueError, TypeError):
+                log.warning("beat with an unusable id, skipped", extra={"row": str(row)[:120]})
+                continue
+            seen.add(beat_id)
+            beat = await session.get(Beat, beat_id)
+            if beat is None:
+                beat = Beat(id=beat_id)
+                session.add(beat)
+            beat.name = row.get("name") or ""
+            beat.description = row.get("description") or ""
+            beat.categories = list(row.get("categories") or [])
+            beat.active = True
+            beat.synced_at = utcnow()
+
+        for beat in (await session.execute(select(Beat).where(Beat.active.is_(True)))).scalars():
+            if beat.id not in seen:
+                beat.active = False
+
+    log.info("beats synced", extra={"active": len(seen)})
+    return len(seen)

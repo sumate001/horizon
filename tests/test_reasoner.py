@@ -350,9 +350,44 @@ def test_a_dispatch_payload_validates_against_the_shared_schema():
         ],
         "cluster_id": str(uuid.uuid4()),
         "scenario_id": str(uuid.uuid4()),
+        # Present and null: this is a detection, not a beat the newsroom asked
+        # for. Always emitting the field means the receiver never has to tell
+        # "absent" apart from "not set".
+        "beat_id": None,
+        "beat_name": None,
+        "beat_reason": None,
         "created_at": datetime(2026, 8, 22, 8, 0, tzinfo=UTC).isoformat(),
     }
     validator.validate(payload)
+
+
+def test_a_beat_match_payload_validates_against_the_shared_schema():
+    """The other shape a signal can now take: not "we noticed something" but
+    "you asked to follow this, and here it is"."""
+    schema = json.loads((CONTRACTS / "signal_inbound.schema.json").read_text(encoding="utf-8"))
+    validator = Draft202012Validator(
+        schema, format_checker=Draft202012Validator.FORMAT_CHECKER
+    )
+
+    validator.validate(
+        {
+            "signal_id": str(uuid.uuid4()),
+            "signal_type": "beat_match",
+            "title": "อิสราเอลขยายพื้นที่ตั้งถิ่นฐานเขต E1",
+            "combined_score": 0.0,
+            "trend_score": 0.0,
+            "categories": ["ต่างประเทศ", "ความมั่นคง"],
+            "summary": "มีการรายงานการขยายพื้นที่ในเขต E1 ใกล้ Maale Adumim",
+            "top_events": [],
+            "force_assessments": [],
+            "cluster_id": None,
+            "scenario_id": None,
+            "beat_id": str(uuid.uuid4()),
+            "beat_name": "อิสราเอลในประเทศไทย",
+            "beat_reason": "เป็นความเคลื่อนไหวเรื่องการตั้งถิ่นฐานที่ประเด็นนี้ติดตามอยู่",
+            "created_at": datetime(2026, 9, 20, 8, 0, tzinfo=UTC).isoformat(),
+        }
+    )
 
 
 def test_the_signal_ref_carries_both_shapes_a_signal_can_take():

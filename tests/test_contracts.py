@@ -73,6 +73,11 @@ def valid_signal(**overrides) -> dict:
             {"force": "เศรษฐกิจและการเงิน", "impact": 0.66, "uncertainty": 0.5}
         ],
         "cluster_id": None,
+        # Always present, null on a detection — the same convention cluster_id
+        # follows, so a receiver never has to tell "absent" from "not set".
+        "beat_id": None,
+        "beat_name": None,
+        "beat_reason": None,
         "scenario_id": None,
         "created_at": "2026-08-22T08:00:00+00:00",
     }
