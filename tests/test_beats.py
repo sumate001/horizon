@@ -122,3 +122,30 @@ def test_a_number_for_an_event_that_was_not_offered_is_dropped():
 
     assert "0 <= position < len(chunk)" in source
     assert source.index("0 <= position < len(chunk)") < source.index("BeatMatch(")
+
+
+def test_a_match_nobody_heard_is_not_recorded_as_sent():
+    """Redis pub/sub has no queue: publishing while the reasoner restarts
+    succeeds, reaches nobody, and raises nothing. Observed live — the match row
+    was written, so every later run skipped it as already handled and the story
+    was gone. The row has to be rolled back."""
+    import inspect
+
+    from horizon.batch import beats
+
+    source = inspect.getsource(beats.run_beat_matching)
+
+    assert "if not heard:" in source
+    assert "session.delete(stale)" in source
+    # And the rollback has to happen before the counters say it was sent.
+    assert source.index("session.delete(stale)") < source.index("report.matched += 1")
+
+
+def test_publish_reports_how_many_heard_it_not_merely_that_it_tried():
+    """A bool cannot tell "sent" from "shouted into an empty room", and callers
+    write down "handled" on the strength of it."""
+    import inspect
+
+    from horizon.batch import signals
+
+    assert "-> int" in inspect.getsource(signals.publish).splitlines()[0]

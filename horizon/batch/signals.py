@@ -20,8 +20,14 @@ log = logging.getLogger("horizon.batch.signals")
 SignalType = Literal["weak_signal", "trend_breakout"]
 
 
-async def publish(signal_type: SignalType, ref_id: uuid.UUID, **payload) -> bool:
-    """Announce one signal. Returns False if publishing failed — never raises."""
+async def publish(signal_type: SignalType, ref_id: uuid.UUID, **payload) -> int:
+    """Announce one signal. Returns how many subscribers heard it — never raises.
+
+    The count, not a bool: Redis pub/sub has no queue behind it, so publishing
+    while the reasoner happens to be restarting succeeds and reaches nobody.
+    A caller that has already written down "sent" on the strength of a True
+    will never retry, and the story is gone. Callers must treat 0 as not sent.
+    """
     settings = get_settings()
     message = {
         "signal_type": signal_type,
@@ -38,10 +44,15 @@ async def publish(signal_type: SignalType, ref_id: uuid.UUID, **payload) -> bool
             "signal published",
             extra={"signal_type": signal_type, "ref_id": str(ref_id), "receivers": receivers},
         )
-        return True
+        if not receivers:
+            log.warning(
+                "signal published to nobody — no subscriber was listening",
+                extra={"signal_type": signal_type, "ref_id": str(ref_id)},
+            )
+        return int(receivers)
     except Exception as exc:  # noqa: BLE001 — alerting must not block the batch
         log.warning(
             "signal publish failed",
             extra={"signal_type": signal_type, "ref_id": str(ref_id), "error": str(exc)},
         )
-        return False
+        return 0

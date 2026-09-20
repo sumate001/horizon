@@ -74,6 +74,9 @@ class BeatReport:
     matched: int = 0
     published: int = 0
     already_matched: int = 0
+    #: Matched, but nobody was listening when it was announced. Rolled back so
+    #: a later run tries again rather than treating the story as handled.
+    dropped: int = 0
     capped: list[str] = field(default_factory=list)
     model_failures: int = 0
 
@@ -85,6 +88,7 @@ class BeatReport:
             "matched": self.matched,
             "published": self.published,
             "already_matched": self.already_matched,
+            "dropped": self.dropped,
             "capped": self.capped,
             "model_failures": self.model_failures,
         }
@@ -242,9 +246,7 @@ async def run_beat_matching() -> BeatReport:
                     report.already_matched += 1
                     continue
 
-                report.matched += 1
-                matched_here += 1
-                if await publish(
+                heard = await publish(
                     "beat_match",
                     match_id,
                     title=summary[:160],
@@ -255,8 +257,23 @@ async def run_beat_matching() -> BeatReport:
                     beat_id=str(beat_id),
                     beat_name=beat_name,
                     beat_reason=reason,
-                ):
-                    report.published += 1
+                )
+                if not heard:
+                    # Redis pub/sub has no queue behind it: publishing while the
+                    # reasoner restarts reaches nobody and raises nothing. The
+                    # row has to go back, because keeping it would mark this
+                    # story as handled and no run would ever look at it again —
+                    # the story would be lost, silently, forever.
+                    async with session_scope() as session:
+                        stale = await session.get(BeatMatch, match_id)
+                        if stale is not None:
+                            await session.delete(stale)
+                    report.dropped += 1
+                    continue
+
+                report.matched += 1
+                matched_here += 1
+                report.published += 1
 
     report.events_considered = len(considered)
     log.info("beat matching complete", extra=report.as_log())
