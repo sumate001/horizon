@@ -91,6 +91,31 @@ class Settings(BaseSettings):
     #: three days of data scored 0.225–0.317, so 0.20 lets them through while
     #: still excluding a degenerate one.
     weak_signal_t: float = 0.20
+
+    #: Measured, deliberately NOT retuned — the stored distribution and the one
+    #: the detector can actually see are two different distributions, and only
+    #: the second one is a basis for this number.
+    #:
+    #: Across 136,197 scored windows: median 0, p95 0.253, p99 5.23, max 66.9,
+    #: and 3,172 windows at or above 2.5. That reads like a reachable threshold
+    #: and is not, for two reasons. 2,714 of those windows (86%) belong to
+    #: clusters that have since gone dormant, which run_trend_scoring does not
+    #: consider at all. And `_persist` upserts every window on every run, so a
+    #: stored score is the value computed in hindsight, with the window complete
+    #: and later windows surrounding it.
+    #:
+    #: The live check reads `scores[-1]`, the window still being filled. Over
+    #: the 97 clusters past their provisional period, that window scored max
+    #: 1.434, median -0.115, and reached 2.5 exactly zero times. So the live
+    #: ceiling sits below the threshold — one breakout in three days is that,
+    #: not a quiet news week.
+    #:
+    #: Lowering it needs the live-window distribution over time, not this one
+    #: snapshot: how many breakouts per day a given value sends to the newsroom
+    #: is an editorial quantity, and a number picked off a single reading is the
+    #: guess this comment exists to prevent. Evaluating a completed window
+    #: instead was tried and measured worse (live max 1.434 → 0.942): a surge
+    #: shows up in the window still being filled, which is the point of it.
     trend_breakout_t: float = 2.5
 
     weak_novelty_w: float = 0.4

@@ -6,11 +6,13 @@ import pytest
 
 from horizon.batch.burst import burst_score
 from horizon.batch.weak_signals import (
+    _OPEN_STATUSES,
     Candidate,
     category_rarity,
     daily_counts_from,
     isolation_scores,
 )
+from horizon.models import WEAK_SIGNAL_STATUSES
 
 # ── Kleinberg burst ──────────────────────────────────────────────────────────
 
@@ -231,3 +233,27 @@ def test_a_candidate_referring_to_nothing_is_not_matched_against_anything():
     """`None in already_open` must never be true, or one unclustered signal
     would suppress every other."""
     assert _candidate().ref is None
+
+
+# ── what counts as "already in someone's inbox" ──────────────────────────────
+
+
+def test_a_signal_already_sent_still_suppresses_the_same_story():
+    """The reasoner flips candidate → dispatched the moment a signal leaves for
+    OSINT//DESK. If that took it out of the open set, the batch three hours
+    later would file the identical story again — which is what happened: 254
+    signals for 188 stories, one of them seven times."""
+    assert "dispatched" in _OPEN_STATUSES
+
+
+def test_a_story_reopens_only_once_somebody_has_ruled_on_it():
+    """A verdict is the one thing that makes a fresh burst news again. Anything
+    else still awaits an answer and must not be re-sent."""
+    closed = set(WEAK_SIGNAL_STATUSES) - set(_OPEN_STATUSES)
+
+    assert closed == {"verified_true", "verified_false", "expired"}
+
+
+def test_every_open_status_is_a_real_status():
+    """A typo here would silently stop suppressing anything."""
+    assert set(_OPEN_STATUSES) <= set(WEAK_SIGNAL_STATUSES)

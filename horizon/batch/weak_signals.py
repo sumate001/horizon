@@ -122,17 +122,24 @@ class WeakSignalReport:
         return dict(self.__dict__)
 
 
-async def _open_signal_refs() -> set[uuid.UUID]:
-    """Clusters and events that already have a weak signal awaiting a verdict.
+#: Statuses that still count as "this story is already in someone's inbox".
+#: `dispatched` belongs here and used to be missing, which is the whole point:
+#: the reasoner flips candidate → dispatched the moment a signal leaves for
+#: OSINT//DESK, so a filter on `candidate` alone stopped recognising a story
+#: exactly when it had just been sent. Every batch run three hours later filed
+#: and dispatched it again — 254 signals in the editor's inbox for 188 stories,
+#: one of them seven times. Only an actual verdict (or expiry) reopens a story:
+#: after an analyst has ruled on it, a fresh burst really is news again.
+_OPEN_STATUSES = ("candidate", "dispatched")
 
-    Only `candidate` status counts: once an analyst has confirmed or dismissed
-    one, a fresh burst of the same story is news again rather than a repeat.
-    """
+
+async def _open_signal_refs() -> set[uuid.UUID]:
+    """Clusters and events that already have a weak signal awaiting a verdict."""
     async with session_scope() as session:
         rows = (
             await session.execute(
                 select(WeakSignal.cluster_id, WeakSignal.event_id).where(
-                    WeakSignal.status == "candidate"
+                    WeakSignal.status.in_(_OPEN_STATUSES)
                 )
             )
         ).all()
