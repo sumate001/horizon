@@ -164,8 +164,13 @@ function Mentions({
 function Row({ entity, onDone, canDecide }: { entity: EntityRow; onDone: () => void; canDecide: boolean }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [open, setOpen] = useState(false);
   const pending = entity.review_status === "needs_review";
+  // Open by default in the queue. Deciding "are these the same thing?" is
+  // impossible without the articles, so putting them behind a click leaves the
+  // default state of the screen exactly as useless as it was before they
+  // existed. Rows that are already settled stay collapsed — there is nothing
+  // left to decide about those.
+  const [open, setOpen] = useState(pending);
 
   async function decide(decision: "confirmed" | "rejected") {
     setBusy(decision);
@@ -219,14 +224,12 @@ function Row({ entity, onDone, canDecide }: { entity: EntityRow; onDone: () => v
             <p className="text-[10px] uppercase tracking-wide text-slate-600">
               ข่าวเขียนไว้แบบนี้ ({entity.surface_forms.length} แบบ)
             </p>
-            {pending && (
-              <button
-                onClick={() => setOpen((was) => !was)}
-                className="text-[11px] text-cyan-400 hover:text-cyan-300"
-              >
-                {open ? "ซ่อนข่าวที่อ้างถึง" : "ดูข่าวที่อ้างถึง"}
-              </button>
-            )}
+            <button
+              onClick={() => setOpen((was) => !was)}
+              className="rounded border border-cyan-500/40 px-2 py-0.5 text-[11px] text-cyan-300 hover:bg-cyan-500/10"
+            >
+              {open ? "ซ่อนข่าวที่อ้างถึง" : `ดูข่าวที่อ้างถึง (${entity.mention_count})`}
+            </button>
           </div>
           <div className="mt-1 flex flex-wrap gap-1">
             {entity.surface_forms.map((form) => (
