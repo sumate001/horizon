@@ -77,6 +77,8 @@ class BeatReport:
     #: Matched, but nobody was listening when it was announced. Rolled back so
     #: a later run tries again rather than treating the story as handled.
     dropped: int = 0
+    #: Beats that got their one wide pass over the archive on this run.
+    backfilled: list[str] = field(default_factory=list)
     capped: list[str] = field(default_factory=list)
     model_failures: int = 0
 
@@ -89,6 +91,7 @@ class BeatReport:
             "published": self.published,
             "already_matched": self.already_matched,
             "dropped": self.dropped,
+            "backfilled": self.backfilled,
             "capped": self.capped,
             "model_failures": self.model_failures,
         }
@@ -113,10 +116,10 @@ async def run_beat_matching() -> BeatReport:
         log.info("beat matching disabled")
         return report
 
-    since = utcnow() - timedelta(hours=settings.beat_lookback_hours)
+    now = utcnow()
     async with session_scope() as session:
         beat_rows = [
-            (b.id, b.name, b.description, list(b.categories or []))
+            (b.id, b.name, b.description, list(b.categories or []), b.backfilled_at is None)
             for b in (
                 await session.execute(select(Beat).where(Beat.active.is_(True)).order_by(Beat.name))
             ).scalars()
@@ -135,7 +138,18 @@ async def run_beat_matching() -> BeatReport:
     store = get_vector_store()
     considered: set[uuid.UUID] = set()
 
-    for beat_id, beat_name, description, beat_categories in beat_rows:
+    for beat_id, beat_name, description, beat_categories, first_run in beat_rows:
+        # A beat's first run reaches back over the archive; after that it only
+        # has to keep up. Doing the wide pass every cycle would re-read weeks of
+        # events forever to find the handful that arrived since.
+        since = now - (
+            timedelta(days=settings.beat_backfill_days)
+            if first_run
+            else timedelta(hours=settings.beat_lookback_hours)
+        )
+        if first_run:
+            report.backfilled.append(beat_name)
+
         # The beat's own words are the query. Name included: a beat called
         # "อิสราเอลในประเทศไทย" carries meaning the description may assume.
         try:
@@ -274,6 +288,15 @@ async def run_beat_matching() -> BeatReport:
                 report.matched += 1
                 matched_here += 1
                 report.published += 1
+
+        if first_run:
+            # Stamped whether or not anything matched: the archive has been
+            # looked at, and a beat that legitimately has no history in it must
+            # not re-read four weeks of events on every cycle forever.
+            async with session_scope() as session:
+                beat = await session.get(Beat, beat_id)
+                if beat is not None:
+                    beat.backfilled_at = utcnow()
 
     report.events_considered = len(considered)
     log.info("beat matching complete", extra=report.as_log())

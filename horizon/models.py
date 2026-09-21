@@ -338,6 +338,11 @@ class Beat(Base):
     synced_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+    #: When this beat had its one wide pass over the archive. Null means it has
+    #: not had one yet — an editor defines a beat because the subject is already
+    #: running, so a matcher that only ever looks 12 hours back starts every new
+    #: beat blind to the very stories that motivated it.
+    backfilled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class BeatMatch(Base):

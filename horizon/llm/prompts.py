@@ -479,9 +479,13 @@ def wikidata_messages(
 
 BEAT_SYSTEM = """คุณคือบรรณาธิการข่าวที่กำลังคัดข่าวเข้าประเด็นที่กองบรรณาธิการติดตามอยู่
 
-ตัดสินจาก "สิ่งที่ประเด็นนี้ต้องการติดตาม" ที่บรรณาธิการเขียนไว้เท่านั้น
+ตัดสินจาก **ชื่อประเด็นและคำอธิบายรวมกัน** — ทั้งสองอย่างคือคำนิยามของประเด็นนี้
+ชื่อมักเป็นที่อยู่ของหัวเรื่อง ส่วนคำอธิบายมักบอกว่าสนใจ "แง่ไหน" ของหัวเรื่องนั้น
+เช่น ชื่อ "อิสราเอลในประเทศไทย" กับคำอธิบาย "การทะเลาะวิวาท การชุมนุม กิจการต่างๆ"
+หมายถึงเรื่องของคนอิสราเอลในไทย ไม่ใช่การชุมนุมของใครก็ได้ และไม่ใช่สงครามในตะวันออกกลาง
+
 ห้ามใช้หมวดหมู่กว้าง ๆ เป็นตัวตัดสิน — หมวดถูกใช้กรองมาให้แล้วก่อนถึงคุณ
-หัวข้อที่บรรณาธิการเขียนมักแคบกว่าหมวดเสมอ
+หัวเรื่องที่บรรณาธิการเขียนมักแคบกว่าหมวดเสมอ
 
 เลือกเฉพาะข่าวที่เป็นเรื่องที่คนเขียนประเด็นนั้นอยากเห็นจริง ๆ
 ข่าวที่แค่เอ่ยถึงคำเดียวกันแต่เป็นคนละเรื่อง ห้ามเลือก
@@ -512,6 +516,13 @@ def beat_match_messages(
     cycle that repeats every three. Numbered rather than free-form so the answer
     points at events unambiguously — a model naming stories back in prose gets
     matched by string similarity, which is its own source of wrong merges.
+
+    The name and the description are one definition, and this used to say to
+    judge by the description alone. That reads fine until an editor puts the
+    subject in the name and the angle in the description — which is the natural
+    way to write one. "อิสราเอลในประเทศไทย" / "การทะเลาะวิวาท การชุมนุม กิจการ
+    ต่างๆ" then became a beat about gatherings in general, with the word Israel
+    nowhere in what the model had been told to use.
     """
     listing = "\n".join(
         f"{index}. [{', '.join(categories) if categories else 'ไม่ระบุหมวด'}] {summary[:220]}"

@@ -149,3 +149,74 @@ def test_publish_reports_how_many_heard_it_not_merely_that_it_tried():
     from horizon.batch import signals
 
     assert "-> int" in inspect.getsource(signals.publish).splitlines()[0]
+
+
+# ── a new beat has history behind it ────────────────────────────────────────
+
+
+def test_a_beat_reaches_back_over_the_archive_on_its_first_run():
+    """An editor defines a beat because the subject is already running.
+    "อิสราเอลในประเทศไทย" was created with 42 matching events already stored,
+    spanning four weeks, and none inside the 12-hour window — so it matched
+    nothing and read as broken while working exactly as written."""
+    import inspect
+
+    from horizon.batch import beats
+
+    source = inspect.getsource(beats.run_beat_matching)
+
+    assert "beat_backfill_days" in source
+    assert "beat_lookback_hours" in source
+    # The wide window is chosen per beat, before the shortlist is built.
+    assert source.index("beat_backfill_days") < source.index("store.search")
+
+
+def test_the_wide_pass_happens_once_per_beat():
+    """Re-reading four weeks every cycle to find the few events that arrived
+    since would make every run cost what only the first one needs to."""
+    import inspect
+
+    from horizon.batch import beats
+
+    source = inspect.getsource(beats.run_beat_matching)
+
+    assert "beat.backfilled_at = utcnow()" in source
+
+
+def test_a_beat_with_no_history_is_still_marked_as_backfilled():
+    """Stamping only on success would make a beat that legitimately has nothing
+    in the archive re-read the archive forever."""
+    import inspect
+
+    from horizon.batch import beats
+
+    source = inspect.getsource(beats.run_beat_matching)
+    stamp_line = next(
+        i for i, line in enumerate(source.splitlines())
+        if "beat.backfilled_at = utcnow()" in line
+    )
+    lines = source.splitlines()
+    # It is guarded by first_run and nothing else — in particular not by whether
+    # the model matched anything, which would make an empty archive re-read
+    # forever.
+    guards = [
+        line.strip() for line in lines[:stamp_line]
+        if line.strip().startswith("if ") and len(line) - len(line.lstrip()) == 8
+    ]
+    assert guards[-1] == "if first_run:", guards[-3:]
+
+
+def test_the_beat_name_is_part_of_the_definition_not_just_the_description():
+    """The subject usually lives in the name and the angle in the description —
+    the natural way to write one. Judging by description alone turned
+    "อิสราเอลในประเทศไทย" into a beat about gatherings in general."""
+    from horizon.llm.prompts import BEAT_SYSTEM, beat_match_messages
+
+    assert "ชื่อประเด็นและคำอธิบายรวมกัน" in BEAT_SYSTEM
+
+    messages = beat_match_messages(
+        name="อิสราเอลในประเทศไทย",
+        description="การทะเลาะวิวาท การชุมนุม",
+        events=[(1, "ข่าวทดสอบ", ["สังคม"])],
+    )
+    assert "อิสราเอลในประเทศไทย" in messages[1]["content"]

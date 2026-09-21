@@ -39,6 +39,12 @@ class Settings(BaseSettings):
     #: coverage — `beat_matches` has a unique constraint, so overlap re-reads
     #: rather than re-sends.
     beat_lookback_hours: int = 12
+    #: How far a beat reaches on its first run only. An editor defines a beat
+    #: because the subject is already running — "อิสราเอลในประเทศไทย" was created
+    #: with 42 matching events already in the store, spanning four weeks, and
+    #: none of them inside the 12-hour window. Without this the beat matched
+    #: nothing and read as broken while working exactly as written.
+    beat_backfill_days: int = 30
     #: Events scored below this are not offered to a beat at all. Not a quality
     #: judgement — a floor that keeps the matcher off the long tail of trivia,
     #: which is most of the corpus and none of what a beat is for.
