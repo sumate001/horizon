@@ -889,6 +889,17 @@ async def entity_counts(session: SessionDep):
     }
 
 
+class MentionSplit(BaseModel):
+    """The mentions an analyst says are not this entity."""
+
+    model_config = {"extra": "forbid"}
+
+    #: event_entities.id values. Empty is rejected rather than treated as "all":
+    #: an accidental empty selection must not silently dismantle an entity.
+    mention_ids: list[uuid.UUID] = Field(min_length=1)
+    reviewed_by: str | None = None
+
+
 class EntityReview(BaseModel):
     """An analyst's verdict on a proposed entity."""
 
@@ -931,6 +942,135 @@ async def review_entity(entity_id: uuid.UUID, payload: EntityReview, session: Se
         extra={"entity_id": str(entity_id), "decision": payload.decision},
     )
     return _entity_json(entity, [])
+
+
+@app.get("/api/v1/entities/{entity_id}/mentions")
+async def entity_mentions(entity_id: uuid.UUID, session: SessionDep, limit: int = 60):
+    """Every article this entity was read out of, and how each one wrote the name.
+
+    The review queue could not be worked without this. It showed the surface
+    forms as bare chips — "Fed (เฟด)", "ธนาคารกลางสหรัฐ (Fed)" — with no way to
+    see which article each came from, so the one question a reviewer has to
+    answer ("are these two the same thing?") had to be answered by guessing.
+    The data was always here; `_surfaces` applied .distinct() and dropped the
+    event_id on the way out.
+
+    Ordered newest first: a wrong merge usually shows up in the most recent
+    article, which is the one the analyst has context for.
+    """
+    if await session.get(Entity, entity_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "entity not found")
+
+    rows = (
+        await session.execute(
+            select(EventEntity, Event, RawArticle.url, RawArticle.title)
+            .join(Event, Event.id == EventEntity.event_id)
+            .outerjoin(RawArticle, RawArticle.id == Event.raw_article_id)
+            .where(EventEntity.entity_id == entity_id)
+            .order_by(Event.created_at.desc())
+            .limit(limit)
+        )
+    ).all()
+
+    return [
+        {
+            # The mention, not the entity: this is what a split acts on.
+            "id": str(link.id),
+            "surface_form": link.surface_form,
+            "event_id": str(event.id),
+            "summary": event.summary or "",
+            "categories": list(event.categories or []),
+            "occurred_at": event.created_at.isoformat() if event.created_at else None,
+            "article_title": title,
+            "article_url": url,
+        }
+        for link, event, url, title in rows
+    ]
+
+
+@app.post("/api/v1/entities/{entity_id}/split", dependencies=[WriteAuth])
+async def split_entity(entity_id: uuid.UUID, payload: MentionSplit, session: SessionDep):
+    """Move the named mentions onto an entity of their own.
+
+    "รวมผิด" used to only set review_status='rejected', which stops *new*
+    articles attaching but leaves everything already merged exactly as it was.
+    The wrong history stayed in the store and still travelled to OSINT//DESK.
+    The button said "wrong merge" and meant "stop adding to it".
+
+    Splitting is the operation the queue actually needs, because the mistake is
+    per-mention: twelve of fourteen articles are usually right and two are not,
+    and a decision at entity level can only keep all of them or throw all of
+    them away.
+
+    The new entity carries the surface form the articles used and goes to the
+    queue in turn — it is a name nobody has identified yet, not a finding.
+    """
+    entity = await session.get(Entity, entity_id)
+    if entity is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "entity not found")
+
+    links = list(
+        (
+            await session.execute(
+                select(EventEntity)
+                .where(EventEntity.id.in_(payload.mention_ids))
+                .where(EventEntity.entity_id == entity_id)
+            )
+        ).scalars()
+    )
+    if not links:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "none of those mentions belong to this entity"
+        )
+
+    total = await session.scalar(
+        select(func.count()).select_from(EventEntity).where(EventEntity.entity_id == entity_id)
+    )
+    if len(links) >= (total or 0):
+        # Splitting everything off would leave an entity with no evidence behind
+        # it and produce a duplicate of itself. That is "rejected", not a split.
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "that is every mention — use รวมผิด instead of splitting all of them",
+        )
+
+    surface = links[0].surface_form
+    moved = Entity(
+        id=uuid.uuid4(),
+        canonical_name=surface,
+        entity_type="unknown",
+        aliases=sorted({link.surface_form for link in links}),
+        # Deliberately below the review threshold: this is a name a human has
+        # separated out, not a name anything has identified yet.
+        confidence=0.0,
+        review_status="needs_review",
+        decided_by="human",
+        risk=f"แยกออกจาก \"{entity.canonical_name}\" เพราะไม่ใช่สิ่งเดียวกัน",
+        mention_count=len(links),
+    )
+    session.add(moved)
+    await session.flush()
+
+    for link in links:
+        link.entity_id = moved.id
+    entity.mention_count = max(0, entity.mention_count - len(links))
+    entity.reviewed_by = payload.reviewed_by
+    entity.reviewed_at = datetime.now(UTC)
+
+    log.info(
+        "mentions split off an entity",
+        extra={
+            "entity_id": str(entity_id),
+            "new_entity_id": str(moved.id),
+            "mentions": len(links),
+        },
+    )
+    return {
+        "entity_id": str(entity_id),
+        "new_entity_id": str(moved.id),
+        "moved": len(links),
+        "new_canonical_name": moved.canonical_name,
+    }
 
 
 @app.get("/api/v1/clusters/{cluster_id}/entities")

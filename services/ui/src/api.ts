@@ -68,6 +68,19 @@ export type TriageSimulation = {
   proposed: TriageDistribution | Record<string, never>;
 };
 
+/** One article this entity was read out of, and how that article wrote the name. */
+export type Mention = {
+  /** event_entities.id — what a split acts on. Not the entity, not the event. */
+  id: string;
+  surface_form: string;
+  event_id: string;
+  summary: string;
+  categories: string[];
+  occurred_at: string | null;
+  article_title: string | null;
+  article_url: string | null;
+};
+
 export type EntityRow = {
   id: string;
   canonical_name: string;
@@ -142,6 +155,12 @@ export const api = {
   entities: (status?: string, limit = 100) =>
     request<EntityRow[]>(`/entities?limit=${limit}${status ? `&status=${status}` : ""}`),
   entityCounts: () => request<EntityCounts>("/entities/counts"),
+  entityMentions: (id: string) => request<Mention[]>(`/entities/${id}/mentions`),
+  splitEntity: (id: string, mentionIds: string[]) =>
+    request<{ new_entity_id: string; moved: number; new_canonical_name: string }>(
+      `/entities/${id}/split`,
+      { method: "POST", body: JSON.stringify({ mention_ids: mentionIds }) },
+    ),
   reviewEntity: (id: string, body: { decision: "confirmed" | "rejected"; canonical_name?: string }) =>
     request<EntityRow>(`/entities/${id}/review`, { method: "POST", body: JSON.stringify(body) }),
   rescoreTriage: () =>

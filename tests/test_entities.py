@@ -664,3 +664,60 @@ def test_the_same_name_spelled_two_ways_is_left_alone(members):
     from horizon.pipeline.entities import merge_is_risky
 
     assert merge_is_risky(members) is None
+
+
+# ── the review queue has to be workable ─────────────────────────────────────
+
+
+def _api_source(name):
+    import inspect
+
+    from horizon.services import api
+
+    return inspect.getsource(getattr(api, name))
+
+
+def test_a_mention_is_shown_with_the_article_it_came_from():
+    """The queue used to show bare surface-form chips — "Fed (เฟด)",
+    "ธนาคารกลางสหรัฐ (Fed)" — with no way to see which article each came from.
+    The one question a reviewer must answer could only be guessed at. The data
+    was always there; _surfaces dropped event_id on the way out."""
+    source = _api_source("entity_mentions")
+
+    for field in ("surface_form", "summary", "article_url", "occurred_at"):
+        assert f'"{field}"' in source
+
+
+def test_splitting_off_every_mention_is_refused():
+    """It would leave an entity with no evidence behind it and create a
+    duplicate of itself. That decision is รวมผิด, and saying so is more use
+    than silently doing something odd."""
+    source = _api_source("split_entity")
+
+    assert "len(links) >= (total or 0)" in source
+    assert "HTTP_400_BAD_REQUEST" in source
+
+
+def test_a_split_moves_the_mentions_rather_than_copying_them():
+    """The point is that the wrong history stops being attached to this entity.
+    Leaving the old rows in place would keep the bad merge in the store while
+    reporting that it had been fixed."""
+    source = _api_source("split_entity")
+
+    assert "link.entity_id = moved.id" in source
+
+
+def test_what_is_split_off_goes_back_to_the_queue():
+    """A separated name is a name nobody has identified yet, not a finding.
+    Marking it resolved would launder a guess into a fact."""
+    source = _api_source("split_entity")
+
+    assert 'review_status="needs_review"' in source
+    assert "confidence=0.0" in source
+
+
+def test_a_mention_from_another_entity_cannot_be_split_off_this_one():
+    """The ids come from the browser, so ownership is checked server-side."""
+    source = _api_source("split_entity")
+
+    assert "EventEntity.entity_id == entity_id" in source
