@@ -31,7 +31,14 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://100.94.37.18:11434"
     extract_model: str = "gemma4:12b"
     embed_model: str = "bge-m3"
-    llm_timeout: float = 60.0
+    #: 60s was calibrated against a model resident on the GPU. It does not
+    #: survive a shared box: with a 31b model holding 19.2GB of VRAM, gemma4:12b
+    #: runs 72% on CPU and a trivial prompt measured 94 seconds — so every call
+    #: timed out, twice, and extraction failed on 39–72% of articles for over a
+    #: week while looking like an LLM problem rather than a capacity one.
+    #: Raising it does not make anything slower; it stops throwing away work
+    #: that was nearly finished.
+    llm_timeout: float = 180.0
     entity_model: str = "gemma4:12b"
     beat_model: str = "gemma4:12b"
     #: How far back the beat matcher looks on each batch run. Wider than the

@@ -40,3 +40,13 @@ def test_seeded_source_types_are_accepted_by_the_check_constraint():
 
     for name, _, source_type, _ in SOURCES:
         assert source_type in SOURCE_TYPES, name
+
+
+def test_the_llm_timeout_survives_a_shared_gpu():
+    """60s was calibrated against a model resident on the GPU. Measured on a box
+    where a 31b model held 19.2GB of VRAM, gemma4:12b ran 72% on CPU and a
+    trivial prompt took 94 seconds — every call timed out twice, and extraction
+    failed on 39–72% of articles for over a week."""
+    from horizon.config import Settings
+
+    assert Settings().llm_timeout >= 120.0

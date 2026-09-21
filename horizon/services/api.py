@@ -96,6 +96,13 @@ class Detection(BaseModel):
 class Stats(BaseModel):
     queue_depth: int
     articles_by_status: dict[str, int]
+    #: Share of the last 24h of articles that never became an event, 0–100.
+    #: `articles_by_status` holds lifetime totals, and a number that only ever
+    #: grows cannot say whether anything is wrong *now*: extraction failed on
+    #: 39–72% of articles for over a week, on a dashboard reporting a five-digit
+    #: "failed" count that looked the same on a good day as on a bad one.
+    failure_rate_24h: float
+    articles_failed_24h: int
     events_total: int
     events_last_24h: int
     events_incomplete: int
@@ -234,9 +241,35 @@ async def stats(session: SessionDep) -> Stats:
     # The oldest provisional cluster matures first, so it sets the date.
     oldest = min((f for f in provisional if f is not None), default=None)
 
+    recent_failed = (
+        await session.scalar(
+            select(func.count())
+            .select_from(RawArticle)
+            .where(RawArticle.fetched_at >= since, RawArticle.status == "failed")
+        )
+        or 0
+    )
+    recent_decided = (
+        await session.scalar(
+            select(func.count())
+            .select_from(RawArticle)
+            .where(
+                RawArticle.fetched_at >= since,
+                RawArticle.status.in_(("failed", "processed")),
+            )
+        )
+        or 0
+    )
+
     return Stats(
         queue_depth=await ArticleQueue().depth(),
         articles_by_status=by_status,
+        # Against decided articles only. Counting the queue in the denominator
+        # would make a healthy backlog look like improving quality.
+        failure_rate_24h=round(100.0 * recent_failed / recent_decided, 1)
+        if recent_decided
+        else 0.0,
+        articles_failed_24h=recent_failed,
         events_total=await session.scalar(select(func.count()).select_from(Event)) or 0,
         events_last_24h=await session.scalar(
             select(func.count()).select_from(Event).where(Event.created_at >= since)
