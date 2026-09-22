@@ -44,7 +44,7 @@ from ..config import get_settings
 from ..db import session_scope
 from ..llm.ollama import OllamaError, get_ollama
 from ..llm.prompts import beat_match_messages
-from ..models import Beat, BeatMatch, Event
+from ..models import Beat, BeatMatch, Dispatch, Event
 from ..pipeline.vectors import get_vector_store, utcnow
 from .signals import publish
 
@@ -324,3 +324,59 @@ async def run_beat_matching() -> BeatReport:
     report.events_considered = len(considered)
     log.info("beat matching complete", extra=report.as_log())
     return report
+
+
+async def undispatched_matches(limit: int = 50) -> list[uuid.UUID]:
+    """Matches that were recorded but never turned into a dispatch.
+
+    Redis pub/sub has no queue behind it and PUBLISH counts *subscribers*, not
+    readers. The reasoner is a single consumer that can block for minutes on one
+    signal's scenario reasoning, and everything announced while it is busy goes
+    to a socket nobody is reading and is gone. Measured: 51 matches recorded,
+    dispatched, and never delivered — the row said the story had been handled
+    and the editor never saw it.
+
+    So the row is the queue and the message is only the fast path. Anything with
+    no dispatch against it is picked up here, however it was missed.
+    """
+    async with session_scope() as session:
+        rows = (
+            await session.execute(
+                select(BeatMatch.id)
+                .where(
+                    ~select(Dispatch.id)
+                    .where(Dispatch.ref_id == BeatMatch.id)
+                    .exists()
+                )
+                .order_by(BeatMatch.created_at)
+                .limit(limit)
+            )
+        ).scalars()
+        return list(rows)
+
+
+async def republish(match_id: uuid.UUID) -> bool:
+    """Announce one recorded match again. Returns whether anyone was listening."""
+    async with session_scope() as session:
+        row = (
+            await session.execute(
+                select(BeatMatch, Beat, Event)
+                .join(Beat, Beat.id == BeatMatch.beat_id)
+                .join(Event, Event.id == BeatMatch.event_id)
+                .where(BeatMatch.id == match_id)
+            )
+        ).first()
+        if row is None:
+            return False
+        match, beat, event = row
+        payload = {
+            "title": (event.summary or "")[:160],
+            "categories": list(event.categories or []),
+            "cluster_id": str(event.cluster_id) if event.cluster_id else None,
+            "event_id": str(event.id),
+            "beat_id": str(beat.id),
+            "beat_name": beat.name,
+            "beat_reason": match.reason,
+        }
+
+    return bool(await publish("beat_match", match_id, combined_score=0.0, **payload))

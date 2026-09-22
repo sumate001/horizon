@@ -251,3 +251,36 @@ def test_the_shortlist_is_wide_enough_to_reach_past_near_misses():
     # And the cost of a wider list stays bounded by the other two.
     assert BATCH < SHORTLIST
     assert MAX_MATCHES_PER_BEAT < SHORTLIST
+
+
+# ── the row is the queue, the message is only the fast path ─────────────────
+
+
+def test_a_match_nobody_read_is_picked_up_again():
+    """PUBLISH counts subscribers, not readers. The reasoner is one consumer
+    that can block for minutes inside a signal's scenario reasoning, so anything
+    announced meanwhile goes to a socket nobody is reading. Measured: 51 matches
+    recorded, dispatched nowhere, and the row said the story was handled."""
+    import inspect
+
+    from horizon.batch import beats
+
+    source = inspect.getsource(beats.undispatched_matches)
+
+    assert "Dispatch.ref_id == BeatMatch.id" in source
+    assert "exists()" in source
+
+
+def test_the_sweeper_runs_beside_the_consumer_not_inside_it():
+    """It has to keep working while the consumer is stuck — being stuck is the
+    condition it exists to recover from."""
+    import inspect
+
+    from horizon.services import reasoner
+
+    loop = inspect.getsource(reasoner.delivery_loop)
+
+    assert "undispatched_matches()" in loop
+    assert "republish(match_id)" in loop
+    # And a failure there must not stop the delivery retries beside it.
+    assert loop.count("except Exception") >= 2

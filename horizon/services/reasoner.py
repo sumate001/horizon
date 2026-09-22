@@ -24,6 +24,7 @@ from datetime import timedelta
 
 from sqlalchemy import or_, select
 
+from ..batch.beats import republish, undispatched_matches
 from ..config import get_settings
 from ..db import session_scope
 from ..integration.osint_desk import deliver, due_dispatches
@@ -206,6 +207,21 @@ async def delivery_loop(stop: asyncio.Event) -> None:
                 await deliver(dispatch_id)
         except Exception as exc:
             log.exception("delivery sweep failed", extra={"error": str(exc)})
+
+        # Matches that were announced while this consumer was busy. pub/sub has
+        # no queue and PUBLISH counts subscribers rather than readers, so a
+        # message sent while the loop is inside one signal's reasoning is simply
+        # gone — 51 matches were recorded and never reached the editor that way.
+        # The stored row is what guarantees delivery; the message is the fast
+        # path, not the mechanism.
+        try:
+            missed = await undispatched_matches()
+            if missed:
+                log.info("re-announcing matches nobody read", extra={"count": len(missed)})
+            for match_id in missed:
+                await republish(match_id)
+        except Exception as exc:
+            log.exception("beat match sweep failed", extra={"error": str(exc)})
 
         with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(stop.wait(), timeout=DELIVERY_SWEEP_SECONDS)
