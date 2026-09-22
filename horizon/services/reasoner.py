@@ -22,7 +22,7 @@ import signal as signalmod
 import uuid
 from datetime import timedelta
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 
 from ..batch.beats import republish, undispatched_matches
 from ..config import get_settings
@@ -119,6 +119,16 @@ async def _recently_reasoned(signal: SignalRef) -> bool:
     return seen is not None
 
 
+async def _already_dispatched(ref_id: uuid.UUID) -> bool:
+    """Has this exact match already left the building?"""
+    async with session_scope() as session:
+        return (
+            await session.scalar(
+                select(func.count()).select_from(Dispatch).where(Dispatch.ref_id == ref_id)
+            )
+        ) > 0
+
+
 async def _mark_dispatched(signal: SignalRef) -> None:
     """Weak signal rows move candidate → dispatched once they leave the building."""
     if signal.signal_type != "weak_signal":
@@ -145,6 +155,23 @@ async def handle_signal(signal: SignalRef) -> uuid.UUID | None:
     # detections; applying it here would silently drop the story the newsroom
     # explicitly asked to be told about, because something else on the same
     # cluster happened to fire first.
+    # One match, one dispatch, whatever happens on the wire. The sweeper
+    # re-announces anything without a dispatch every 20 seconds, and while this
+    # consumer was stuck inside another signal's reasoning it kept announcing
+    # the same match — then drained the backlog and made a dispatch for every
+    # copy. Two matches became 61 and 64 deliveries, and an editor following
+    # "สงครามโลกครั้งที่ 3" opened the inbox to the same Gaza story 61 times.
+    #
+    # The check belongs here rather than in the sweeper: the duplicate is
+    # created on this side, so this is where it can actually be prevented.
+    # Not a blanket rule on ref_id — a cluster breaking out again weeks later is
+    # a real second trend_breakout, but a match is one event on one beat, once.
+    if signal.signal_type == "beat_match" and await _already_dispatched(signal.ref_id):
+        signals_handled.labels(signal.signal_type, "duplicate").inc()
+        log.info("match already dispatched — ignoring the repeat announcement",
+                 extra={"ref_id": str(signal.ref_id)})
+        return None
+
     if signal.signal_type != "beat_match" and await _recently_reasoned(signal):
         signals_handled.labels(signal.signal_type, "cooldown").inc()
         log.info(
@@ -199,6 +226,10 @@ async def delivery_loop(stop: asyncio.Event) -> None:
         return
 
     log.info("delivery sweeper started", extra={"interval_s": DELIVERY_SWEEP_SECONDS})
+    #: Matches this process has already put on the wire. Bounded by the fact
+    #: that a match leaves the set the moment it has a dispatch — and a restart
+    #: clears it, which is correct: after a restart nothing is in flight.
+    announced: set[uuid.UUID] = set()
     while not stop.is_set():
         try:
             due = await due_dispatches()
@@ -215,11 +246,17 @@ async def delivery_loop(stop: asyncio.Event) -> None:
         # The stored row is what guarantees delivery; the message is the fast
         # path, not the mechanism.
         try:
-            missed = await undispatched_matches()
+            # Announced at most once per pass. The consumer may be minutes
+            # behind — it is the same loop — so re-announcing every 20s piles up
+            # copies of a message it has not reached yet. Remembering what was
+            # already sent keeps the sweep a recovery mechanism rather than a
+            # source of load, and _already_dispatched catches whatever slips.
+            missed = [m for m in await undispatched_matches() if m not in announced]
             if missed:
                 log.info("re-announcing matches nobody read", extra={"count": len(missed)})
             for match_id in missed:
-                await republish(match_id)
+                if await republish(match_id):
+                    announced.add(match_id)
         except Exception as exc:
             log.exception("beat match sweep failed", extra={"error": str(exc)})
 

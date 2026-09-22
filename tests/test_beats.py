@@ -284,3 +284,46 @@ def test_the_sweeper_runs_beside_the_consumer_not_inside_it():
     assert "republish(match_id)" in loop
     # And a failure there must not stop the delivery retries beside it.
     assert loop.count("except Exception") >= 2
+
+
+def test_a_match_is_dispatched_once_however_often_it_is_announced():
+    """The sweeper re-announces anything without a dispatch every 20s, and the
+    consumer is the same loop — so while it was stuck the same match was
+    announced over and over, then given a dispatch per copy when it drained.
+    Two matches became 61 and 64 deliveries, and an editor following
+    "สงครามโลกครั้งที่ 3" opened the inbox to one Gaza story 61 times."""
+    import inspect
+
+    from horizon.services import reasoner
+
+    source = inspect.getsource(reasoner.handle_signal)
+
+    assert "_already_dispatched(signal.ref_id)" in source
+    # Checked before anything is recorded, not after.
+    assert source.index("_already_dispatched") < source.index("record_dispatch")
+
+
+def test_the_guard_is_only_for_matches():
+    """A cluster breaking out again weeks later is a real second
+    trend_breakout. Only a match is one event on one beat, once."""
+    import inspect
+
+    from horizon.services import reasoner
+
+    source = inspect.getsource(reasoner.handle_signal)
+
+    assert 'signal.signal_type == "beat_match" and await _already_dispatched' in source
+
+
+def test_the_sweeper_does_not_re_announce_what_it_just_sent():
+    """Re-announcing every 20s piles up copies of a message the consumer has
+    not reached yet, which is what produced the duplicates in the first place."""
+    import inspect
+
+    from horizon.services import reasoner
+
+    loop = inspect.getsource(reasoner.delivery_loop)
+
+    assert "announced: set[uuid.UUID] = set()" in loop
+    assert "if m not in announced" in loop
+    assert "announced.add(match_id)" in loop
