@@ -49,4 +49,8 @@ def test_the_llm_timeout_survives_a_shared_gpu():
     failed on 39–72% of articles for over a week."""
     from horizon.config import Settings
 
-    assert Settings().llm_timeout >= 120.0
+    # Has to cover a *cold* call, not a warm one. The batch runs every three
+    # hours and Ollama drops a model after five minutes idle, so the first
+    # question of every run loads the model first — measured at 222s here
+    # against 64–120s warm.
+    assert Settings().llm_timeout >= 240.0

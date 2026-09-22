@@ -38,7 +38,12 @@ class Settings(BaseSettings):
     #: week while looking like an LLM problem rather than a capacity one.
     #: Raising it does not make anything slower; it stops throwing away work
     #: that was nearly finished.
-    llm_timeout: float = 180.0
+    #: 180 covered a warm call and not a cold one. Measured on this host after
+    #: clearing VRAM: loading gemma4:12b and answering took 222s, warm calls
+    #: 64–120s. The batch runs every three hours and Ollama drops a model after
+    #: five minutes idle, so the first question of every run is always the cold
+    #: one — it would have timed out, every time, for ever.
+    llm_timeout: float = 300.0
     entity_model: str = "gemma4:12b"
     beat_model: str = "gemma4:12b"
     #: How far back the beat matcher looks on each batch run. Wider than the
