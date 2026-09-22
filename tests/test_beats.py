@@ -238,3 +238,16 @@ def test_the_beat_name_is_part_of_the_definition_not_just_the_description():
         events=[(1, "ข่าวทดสอบ", ["สังคม"])],
     )
     assert "อิสราเอลในประเทศไทย" in messages[1]["content"]
+
+
+def test_the_shortlist_is_wide_enough_to_reach_past_near_misses():
+    """A subject's own noise scores close to it: Middle East war coverage shares
+    the word อิสราเอล with a deportation from Thailand. At 60 that noise filled
+    the list and the on-subject stories never reached the model — measured 22 of
+    the store's matching events at 60 against 29 at 150."""
+    from horizon.batch.beats import BATCH, MAX_MATCHES_PER_BEAT, SHORTLIST
+
+    assert SHORTLIST >= 150
+    # And the cost of a wider list stays bounded by the other two.
+    assert BATCH < SHORTLIST
+    assert MAX_MATCHES_PER_BEAT < SHORTLIST

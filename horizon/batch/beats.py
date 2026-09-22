@@ -58,7 +58,18 @@ MAX_MATCHES_PER_BEAT = 25
 
 #: How many nearest events the vector search offers a beat before the model is
 #: asked anything. The embedding shortlists — it never accepts.
-SHORTLIST = 60
+#:
+#: 60 was too narrow and it cost real stories. Measured on
+#: "อิสราเอลในประเทศไทย": of the on-subject events in the store, 60 reached 22
+#: and 150 reached 29. What crowded the list out was near-miss noise — Middle
+#: East war coverage shares the word อิสราเอล with a deportation from Thailand
+#: and scores close to it — so the Chabad centre in Phuket and the bodies found
+#: in the Jewish cemetery at Bang Khla never got in front of the model at all.
+#: Asked about them directly, the model matched all three correctly.
+#:
+#: Cost is bounded elsewhere: events are asked about BATCH at a time, and one
+#: beat stops at MAX_MATCHES_PER_BEAT however long its list is.
+SHORTLIST = 150
 
 #: Events per question. Under load one question takes 35–120 seconds, so asking
 #: per event would put a single beat's shortlist at an hour on a cycle that
