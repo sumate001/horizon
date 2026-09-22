@@ -721,3 +721,78 @@ def test_a_mention_from_another_entity_cannot_be_split_off_this_one():
     source = _api_source("split_entity")
 
     assert "EventEntity.entity_id == entity_id" in source
+
+
+# ── a decision has to stick ─────────────────────────────────────────────────
+
+
+def test_the_repair_pass_leaves_a_decided_entity_alone():
+    """Re-queueing something a human has already answered is not caution — it is
+    asking the same question again and discarding the answer, which is how a
+    queue teaches people that working it changes nothing."""
+    from horizon.models import Entity
+    from horizon.pipeline.entities import RISK_UNRELATED_NAMES
+    from horizon.pipeline.repair_entities import _flag
+
+    for decided in ("confirmed", "rejected"):
+        entity = Entity(
+            id=uuid.uuid4(),
+            canonical_name="ตัดสินแล้ว",
+            entity_type="org",
+            review_status=decided,
+        )
+
+        _flag(entity, RISK_UNRELATED_NAMES, apply=True)
+
+        assert entity.review_status == decided
+        assert entity.risk is None
+
+
+def test_the_repair_pass_still_flags_an_unreviewed_entity():
+    """The guard must not turn the whole pass into a no-op."""
+    from horizon.models import Entity
+    from horizon.pipeline.entities import RISK_UNRELATED_NAMES
+    from horizon.pipeline.repair_entities import _flag
+
+    entity = Entity(
+        id=uuid.uuid4(), canonical_name="ยังไม่ตรวจ", entity_type="org", review_status="auto"
+    )
+
+    _flag(entity, RISK_UNRELATED_NAMES, apply=True)
+
+    assert entity.review_status == "needs_review"
+    assert entity.risk == RISK_UNRELATED_NAMES
+
+
+def test_a_split_takes_the_spelling_off_the_original():
+    """Candidates are found by alias overlap and ranked by mention_count, so
+    leaving the spelling on the original — which still has the higher count —
+    made the next article carrying it merge straight back into the entity a
+    human had just pulled it out of. A decision that undoes itself is worse
+    than none, because somebody spent attention on it."""
+    source = _api_source("split_entity")
+
+    assert "entity.aliases = sorted(" in source
+    assert "moved_forms - remaining" in source
+
+
+def test_a_split_keeps_a_spelling_that_other_mentions_still_use():
+    """A form shared with mentions that stayed belongs to both. Removing it
+    would unpick correct merges as a side effect of fixing a wrong one."""
+    source = _api_source("split_entity")
+
+    assert "moved_forms - remaining" in source
+    assert "EventEntity.entity_id == entity_id" in source
+
+
+def test_a_confirmed_entity_outranks_a_busier_unreviewed_one():
+    """Otherwise the model keeps being offered the unchecked candidate and the
+    same question comes back around."""
+    import inspect
+
+    from horizon.pipeline import entities as mod
+
+    source = inspect.getsource(mod._candidates)
+
+    assert '(Entity.review_status == "confirmed").desc()' in source
+    assert source.index('review_status == "confirmed"') < source.index("mention_count.desc()")

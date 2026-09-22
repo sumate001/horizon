@@ -695,7 +695,16 @@ async def _candidates(session, aliases: list[str], limit: int = MAX_CANDIDATES):
                 .where(
                     or_(Entity.risk.is_(None), Entity.risk.notin_(UNIDENTIFIABLE_RISKS))
                 )
-                .order_by(Entity.mention_count.desc())
+                # Confirmed rows first, then by how often they are mentioned.
+                # A human having said "yes, this is that thing" is stronger
+                # evidence than any count, and without this a busy unreviewed
+                # row outranked the one somebody had actually checked — so the
+                # model kept being offered the unchecked candidate and the same
+                # question came back around.
+                .order_by(
+                    (Entity.review_status == "confirmed").desc(),
+                    Entity.mention_count.desc(),
+                )
                 .limit(limit)
             )
         ).scalars()

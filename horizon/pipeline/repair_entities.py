@@ -144,8 +144,24 @@ async def _absorb(session, survivor: Entity, victim: Entity) -> None:
     await session.execute(delete(Entity).where(Entity.id == victim.id))
 
 
+#: A human has already answered for these. Re-queueing one is not caution, it is
+#: asking the same question again and throwing away the answer — and it is how a
+#: queue teaches people that working it changes nothing.
+_DECIDED = ("confirmed", "rejected")
+
+
 def _flag(entity: Entity, reason: str, *, apply: bool, **detail) -> None:
     """Hand this entity to the review queue rather than deciding it here."""
+    if entity.review_status in _DECIDED:
+        log.info(
+            "not re-queueing an entity a human has already decided",
+            extra={
+                "entity_name": entity.canonical_name,
+                "decided": entity.review_status,
+                "would_have_flagged": reason,
+            },
+        )
+        return
     log.warning(
         "entity needs a human",
         extra={"entity_name": entity.canonical_name, "reason": reason, **detail},

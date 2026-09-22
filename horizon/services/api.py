@@ -1086,6 +1086,31 @@ async def split_entity(entity_id: uuid.UUID, payload: MentionSplit, session: Ses
 
     for link in links:
         link.entity_id = moved.id
+    # Flushed explicitly: the query below asks what is *left* on this entity, and
+    # relying on autoflush to have moved these first makes the answer depend on
+    # a default rather than on the code.
+    await session.flush()
+
+    # The split has to hold against the next article, and it did not. Merge
+    # candidates are found by alias overlap and ranked by mention_count, so
+    # leaving these spellings on the original — which still has the higher count
+    # — meant the very next article carrying one of them merged straight back
+    # into the entity a human had just pulled it out of, and got flagged again.
+    # A decision that undoes itself is worse than no decision, because someone
+    # spent attention on it.
+    #
+    # Only spellings that left entirely are dropped: a form that other remaining
+    # mentions still use belongs to both, and removing it would unpick correct
+    # merges as a side effect of fixing a wrong one.
+    moved_forms = {link.surface_form for link in links}
+    remaining = set(
+        (
+            await session.execute(
+                select(EventEntity.surface_form).where(EventEntity.entity_id == entity_id)
+            )
+        ).scalars()
+    )
+    entity.aliases = sorted(set(entity.aliases or []) - (moved_forms - remaining))
     entity.mention_count = max(0, entity.mention_count - len(links))
     entity.reviewed_by = payload.reviewed_by
     entity.reviewed_at = datetime.now(UTC)
