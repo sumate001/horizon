@@ -183,6 +183,22 @@ def test_the_wide_pass_happens_once_per_beat():
     assert "beat.backfilled_at = utcnow()" in source
 
 
+def test_a_pass_the_model_could_not_answer_is_not_recorded():
+    """"Nothing in the archive" and "could not ask" are not the same answer, and
+    the beat only gets one wide pass. All four beats were stamped during a run
+    where llm_timeout was too short and every question failed; three recovered
+    because news kept arriving on their subjects, and the sporadic one stayed
+    empty with 42 matching events sitting in the store."""
+    import inspect
+
+    from horizon.batch import beats
+
+    source = inspect.getsource(beats.run_beat_matching)
+
+    assert "if first_run and failed_here:" in source
+    assert source.index("if first_run and failed_here:") < source.index("backfilled_at = utcnow()")
+
+
 def test_a_beat_with_no_history_is_still_marked_as_backfilled():
     """Stamping only on success would make a beat that legitimately has nothing
     in the archive re-read the archive forever."""
@@ -201,9 +217,11 @@ def test_a_beat_with_no_history_is_still_marked_as_backfilled():
     # forever.
     guards = [
         line.strip() for line in lines[:stamp_line]
-        if line.strip().startswith("if ") and len(line) - len(line.lstrip()) == 8
+        if line.strip().startswith(("if ", "elif ")) and len(line) - len(line.lstrip()) == 8
     ]
-    assert guards[-1] == "if first_run:", guards[-3:]
+    # The stamp is reached when the pass ran, whether or not it matched — only a
+    # pass the model could not answer is withheld.
+    assert guards[-1] == "elif first_run:", guards[-3:]
 
 
 def test_the_beat_name_is_part_of_the_definition_not_just_the_description():

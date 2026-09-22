@@ -181,6 +181,7 @@ async def run_beat_matching() -> BeatReport:
             ]
 
         matched_here = 0
+        failed_here = 0
         eligible = [
             (event_id, summary, categories, cluster_id)
             for event_id, summary, categories, cluster_id in candidates
@@ -219,6 +220,7 @@ async def run_beat_matching() -> BeatReport:
                 # One unanswered question must not cost the run. These events
                 # stay unmatched and the next cycle asks again.
                 report.model_failures += 1
+                failed_here += 1
                 log.warning(
                     "beat match question went unanswered",
                     extra={"beat": beat_name, "error": str(exc)[:120]},
@@ -289,10 +291,20 @@ async def run_beat_matching() -> BeatReport:
                 matched_here += 1
                 report.published += 1
 
-        if first_run:
-            # Stamped whether or not anything matched: the archive has been
-            # looked at, and a beat that legitimately has no history in it must
-            # not re-read four weeks of events on every cycle forever.
+        if first_run and failed_here:
+            # "Nothing in the archive" and "could not ask" are not the same
+            # answer, and stamping both spends the one wide pass a beat gets.
+            # It happened: all four beats were backfilled during a run where
+            # llm_timeout was too short, so every question failed and the pass
+            # was recorded as complete. Three recovered because news kept
+            # arriving on their subjects and the 12-hour window caught it;
+            # "อิสราเอลในประเทศไทย" is sporadic, so it simply never got another
+            # chance and stayed empty with 42 matching events in the store.
+            log.warning(
+                "not recording the archive pass — the model could not answer",
+                extra={"beat": beat_name, "unanswered": failed_here},
+            )
+        elif first_run:
             async with session_scope() as session:
                 beat = await session.get(Beat, beat_id)
                 if beat is not None:
